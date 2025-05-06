@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { DollarSign, Users, Star, Package, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react-native';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
-import Colors from '@/constants/Colors';
+import { useThemeColor } from '@/constants/useThemeColor';
 
 interface SearchStatsCardProps {
   stats: {
@@ -22,6 +22,15 @@ interface SearchStatsCardProps {
 export default function SearchStatsCard({ stats }: SearchStatsCardProps) {
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
 
+  // THEME COLORS
+  const backgroundColor = useThemeColor('background');
+  const cardText = useThemeColor('text');
+  const cardSubtle = useThemeColor('tabIconDefault');
+  const cardBorder = useThemeColor('tabIconDefault');
+  const cardTint = useThemeColor('tint');
+  const cardSuccess = useThemeColor('success');
+  const cardError = useThemeColor('error');
+
   const formatPrice = (price: number) => {
     return `$${price.toFixed(2)}`;
   };
@@ -32,55 +41,53 @@ export default function SearchStatsCard({ stats }: SearchStatsCardProps) {
 
   return (
     <Animated.View 
-      style={styles.container}
+      style={[styles.container, { backgroundColor, shadowColor: cardSubtle }]}
       entering={FadeInDown.delay(300).duration(400)}
     >
       <View style={styles.header}>
-        <Text style={styles.title}>Search Statistics</Text>
+        <Text style={[styles.title, { color: cardText }]}>Search Statistics</Text>
       </View>
 
       <View style={styles.statsGrid}>
         <View style={styles.statItem}>
-          <DollarSign size={20} color={Colors.light.tint} />
-          <Text style={styles.statValue}>{formatPrice(stats.averagePrice)}</Text>
-          <Text style={styles.statLabel}>Avg. Price</Text>
+          <DollarSign size={20} color={cardTint} />
+          <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.averagePrice)}</Text>
+          <Text style={[styles.statLabel, { color: cardSubtle }]}>Avg. Price</Text>
         </View>
 
         <View style={styles.statItem}>
-          <Users size={20} color={Colors.light.tint} />
-          <Text style={styles.statValue}>{stats.itemsSold}</Text>
-          <Text style={styles.statLabel}>Items Sold</Text>
+          <Users size={20} color={cardTint} />
+          <Text style={[styles.statValue, { color: cardText }]}>{stats.itemsSold}</Text>
+          <Text style={[styles.statLabel, { color: cardSubtle }]}>Items Sold</Text>
         </View>
 
         <View style={styles.statItem}>
-          <Star size={20} color={Colors.light.tint} />
-          <Text style={styles.statValue}>{formatPercentage(stats.averageSellerRating)}</Text>
-          <Text style={styles.statLabel}>Avg. Rating</Text>
+          <Star size={20} color={cardTint} />
+          <Text style={[styles.statValue, { color: cardText }]}>{formatPercentage(stats.averageSellerRating)}</Text>
+          <Text style={[styles.statLabel, { color: cardSubtle }]}>Avg. Rating</Text>
         </View>
 
         <View style={styles.statItem}>
-          <Package size={20} color={Colors.light.tint} />
-          <Text style={styles.statValue}>{stats.totalItems}</Text>
-          <Text style={styles.statLabel}>Total Items</Text>
+          <Package size={20} color={cardTint} />
+          <Text style={[styles.statValue, { color: cardText }]}>{stats.totalItems}</Text>
+          <Text style={[styles.statLabel, { color: cardSubtle }]}>Total Items</Text>
         </View>
       </View>
 
       <View style={styles.priceRange}>
-        <TrendingUp size={16} color="#666" />
-        <Text style={styles.priceRangeText}>
-          Price Range: {formatPrice(stats.priceRange.min)} - {formatPrice(stats.priceRange.max)}
-        </Text>
+        <TrendingUp size={16} color={cardSubtle} />
+        <Text style={[styles.priceRangeText, { color: cardSubtle }]}>Price Range: {formatPrice(stats.priceRange.min)} - {formatPrice(stats.priceRange.max)}</Text>
       </View>
 
       <TouchableOpacity 
-        style={styles.conditionHeader}
+        style={[styles.conditionHeader, { borderTopColor: cardBorder }]}
         onPress={() => setIsBreakdownOpen(!isBreakdownOpen)}
       >
-        <Text style={styles.conditionTitle}>Condition Breakdown</Text>
+        <Text style={[styles.conditionTitle, { color: cardText }]}>Condition Breakdown</Text>
         {isBreakdownOpen ? (
-          <ChevronUp size={20} color="#666" />
+          <ChevronUp size={20} color={cardSubtle} />
         ) : (
-          <ChevronDown size={20} color="#666" />
+          <ChevronDown size={20} color={cardSubtle} />
         )}
       </TouchableOpacity>
 
@@ -92,8 +99,8 @@ export default function SearchStatsCard({ stats }: SearchStatsCardProps) {
         >
           {Object.entries(stats.conditionBreakdown).map(([condition, count]) => (
             <View key={condition} style={styles.conditionItem}>
-              <Text style={styles.conditionLabel}>{condition}:</Text>
-              <Text style={styles.conditionCount}>{count}</Text>
+              <Text style={[styles.conditionLabel, { color: cardSubtle }]}>{condition}:</Text>
+              <Text style={[styles.conditionCount, { color: cardText }]}>{count}</Text>
             </View>
           ))}
         </Animated.View>
@@ -104,14 +111,12 @@ export default function SearchStatsCard({ stats }: SearchStatsCardProps) {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 8,
-    shadowColor: '#000',
+    marginBottom: 16,
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
     elevation: 2,
   },
   header: {
@@ -120,7 +125,6 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 18,
-    color: '#111',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -137,14 +141,12 @@ const styles = StyleSheet.create({
   statValue: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
-    color: '#111',
     marginLeft: 8,
     marginRight: 4,
   },
   statLabel: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
-    color: '#666',
   },
   priceRange: {
     flexDirection: 'row',
@@ -154,7 +156,6 @@ const styles = StyleSheet.create({
   priceRangeText: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
-    color: '#666',
     marginLeft: 8,
   },
   conditionHeader: {
@@ -163,12 +164,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
   },
   conditionTitle: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
-    color: '#111',
   },
   conditionBreakdown: {
     marginTop: 8,
@@ -182,11 +181,9 @@ const styles = StyleSheet.create({
   conditionLabel: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
-    color: '#666',
   },
   conditionCount: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 14,
-    color: '#111',
   },
 }); 

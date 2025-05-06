@@ -14,7 +14,7 @@ import EmptyState from '@/components/EmptyState';
 import ItemCard from '@/components/ItemCard';
 import SearchStatsCard from '@/components/SearchStatsCard';
 import { calculateSearchStats } from '@/utils/calculateStats';
-import Colors from '@/constants/Colors';
+import { useThemeColor } from '@/constants/useThemeColor';
 import { identifyItemFromImage } from '@/utils/openaiVision';
 
 interface SearchResult {
@@ -42,6 +42,15 @@ export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { addRecentSearch, recentSearches } = useRecentSearches();
+
+  // THEME COLORS
+  const backgroundColor = useThemeColor('background');
+  const textColor = useThemeColor('text');
+  const subtleText = useThemeColor('tabIconDefault');
+  const borderColor = useThemeColor('tabIconDefault');
+  const tintColor = useThemeColor('tint');
+  const errorColor = useThemeColor('error');
+  const cardColor = useThemeColor('background');
 
   const handleSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim()) return;
@@ -175,7 +184,7 @@ export default function SearchScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}>
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoid}
@@ -184,8 +193,8 @@ export default function SearchScreen() {
           style={styles.header}
           entering={FadeInDown.delay(100).duration(400)}
         >
-          <Text style={styles.title}>eBay Resale Estimator</Text>
-          <Text style={styles.subtitle}>Find the true value of any item</Text>
+          <Text style={[styles.title, { color: textColor }]}>eBay Resale Estimator</Text>
+          <Text style={[styles.subtitle, { color: subtleText }]}>Find the true value of any item</Text>
         </Animated.View>
 
         <Animated.View 
@@ -193,11 +202,12 @@ export default function SearchScreen() {
           entering={FadeInDown.delay(200).duration(400)}
           layout={Layout.springify()}
         >
-          <View style={styles.searchInputContainer}>
-            <SearchIcon size={20} color="#777" style={styles.searchIcon} />
+          <View style={[styles.searchInputContainer, { backgroundColor: cardColor, borderColor: borderColor, shadowColor: borderColor }] }>
+            <SearchIcon size={20} color={subtleText} style={styles.searchIcon} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: textColor }]}
               placeholder="Search for an item (e.g., iPhone X)"
+              placeholderTextColor={subtleText}
               value={searchQuery}
               onChangeText={setSearchQuery}
               onSubmitEditing={() => handleSearch()}
@@ -207,12 +217,12 @@ export default function SearchScreen() {
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={handleClearSearch} style={styles.clearButton}>
-                <X size={18} color="#888" />
+                <X size={18} color={subtleText} />
               </TouchableOpacity>
             )}
           </View>
           <TouchableOpacity 
-            style={styles.searchButton}
+            style={[styles.searchButton, { backgroundColor: tintColor, shadowColor: tintColor }]}
             onPress={() => handleSearch()}
             disabled={!searchQuery.trim()}
           >
@@ -222,7 +232,7 @@ export default function SearchScreen() {
 
         {!isLoading && !results.length && !error && (
           <View style={styles.recentSearchesContainer}>
-            <Text style={styles.recentSearchesTitle}>Recent Searches</Text>
+            <Text style={[styles.recentSearchesTitle, { color: textColor }]}>Recent Searches</Text>
             {recentSearches.length > 0 ? (
               <FlatList
                 data={recentSearches}
@@ -231,17 +241,15 @@ export default function SearchScreen() {
                 showsHorizontalScrollIndicator={false}
                 renderItem={({ item }) => (
                   <TouchableOpacity 
-                    style={styles.recentSearchItem}
+                    style={[styles.recentSearchItem, { backgroundColor: cardColor, borderColor: borderColor }]}
                     onPress={() => handleRecentSearchPress(item)}
                   >
-                    <Text style={styles.recentSearchText}>{item}</Text>
+                    <Text style={[styles.recentSearchText, { color: subtleText }]}>{item}</Text>
                   </TouchableOpacity>
                 )}
               />
             ) : (
-              <Text style={styles.noRecentSearches}>
-                Your recent searches will appear here
-              </Text>
+              <Text style={[styles.noRecentSearches, { color: subtleText }]}>Your recent searches will appear here</Text>
             )}
           </View>
         )}
@@ -255,8 +263,8 @@ export default function SearchScreen() {
           />
         ) : isLoading && !isRefreshing ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.light.tint} />
-            <Text style={styles.loadingText}>Searching eBay...</Text>
+            <ActivityIndicator size="large" color={tintColor} />
+            <Text style={[styles.loadingText, { color: subtleText }]}>Searching eBay...</Text>
           </View>
         ) : results.length > 0 ? (
           <FlatList
@@ -278,7 +286,7 @@ export default function SearchScreen() {
               <RefreshControl
                 refreshing={isRefreshing}
                 onRefresh={handleRefresh}
-                tintColor={Colors.light.tint}
+                tintColor={tintColor}
               />
             }
           />
@@ -291,7 +299,7 @@ export default function SearchScreen() {
         ) : null}
 
         <TouchableOpacity 
-          style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8 }]}
+          style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, backgroundColor: tintColor, shadowColor: tintColor }]}
           onPress={handleIdentifyItem}
         >
           <Text style={styles.searchButtonText}>Identify Item (AI)</Text>
@@ -304,26 +312,27 @@ export default function SearchScreen() {
           onRequestClose={() => { if (!aiLoading) setAiModalVisible(false); }}
         >
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' }}>
-            <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 24, width: '85%', alignItems: 'center' }}>
+            <View style={{ backgroundColor: cardColor, borderRadius: 12, padding: 24, width: '85%', alignItems: 'center' }}>
               {aiLoading ? (
                 <>
-                  <ActivityIndicator size="large" color={Colors.light.tint} />
-                  <Text style={{ fontSize: 16, marginTop: 16 }}>Identifying item...</Text>
+                  <ActivityIndicator size="large" color={tintColor} />
+                  <Text style={{ fontSize: 16, marginTop: 16, color: subtleText }}>Identifying item...</Text>
                 </>
               ) : (
                 <>
-                  <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>AI Description</Text>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: textColor }}>AI Description</Text>
                   <TextInput
-                    style={{ borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 16, width: '100%' }}
+                    style={{ borderWidth: 1, borderColor: borderColor, borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 16, width: '100%', color: textColor }}
                     value={aiDescription}
                     onChangeText={setAiDescription}
                     multiline
+                    placeholderTextColor={subtleText}
                   />
-                  {aiError ? <Text style={{ color: 'red', marginBottom: 8 }}>{aiError}</Text> : null}
+                  {aiError ? <Text style={{ color: errorColor, marginBottom: 8 }}>{aiError}</Text> : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'flex-end', width: '100%' }}>
-                    <Button title="Cancel" onPress={() => setAiModalVisible(false)} />
+                    <Button title="Cancel" onPress={() => setAiModalVisible(false)} color={subtleText} />
                     <View style={{ width: 12 }} />
-                    <Button title="Search eBay" onPress={handleAiConfirm} disabled={!aiDescription.trim()} />
+                    <Button title="Search eBay" onPress={handleAiConfirm} disabled={!aiDescription.trim()} color={tintColor} />
                   </View>
                 </>
               )}
@@ -395,13 +404,11 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   searchButton: {
-    backgroundColor: Colors.light.tint,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
     height: 48,
-    shadowColor: Colors.light.tint,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
@@ -452,7 +459,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     marginTop: 12,
     fontSize: 16,
-    color: '#666',
   },
   resultsContainer: {
     padding: 16,

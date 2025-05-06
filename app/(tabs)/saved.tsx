@@ -1,3 +1,4 @@
+import React from 'react';
 import { useState } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,7 +9,7 @@ import { Bookmark, Trash2 } from 'lucide-react-native';
 import { useSavedItems } from '@/hooks/useSavedItems';
 import EmptyState from '@/components/EmptyState';
 import ItemCard from '@/components/ItemCard';
-import Colors from '@/constants/Colors';
+import { useThemeColor } from '@/constants/useThemeColor';
 
 export default function SavedScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -16,6 +17,15 @@ export default function SavedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { savedItems, removeFromSaved, clearSavedItems } = useSavedItems();
+
+  // THEME COLORS
+  const backgroundColor = useThemeColor('background');
+  const textColor = useThemeColor('text');
+  const subtleText = useThemeColor('tabIconDefault');
+  const borderColor = useThemeColor('tabIconDefault');
+  const tintColor = useThemeColor('tint');
+  const errorColor = useThemeColor('error');
+  const cardColor = useThemeColor('background');
 
   const handleItemPress = (item) => {
     router.push({
@@ -47,12 +57,12 @@ export default function SavedScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}>
       <Animated.View 
         style={styles.header}
         entering={FadeInDown.delay(100).duration(400)}
       >
-        <Text style={styles.title}>Saved Items</Text>
+        <Text style={[styles.title, { color: textColor }]}>Saved Items</Text>
         <View style={styles.headerActions}>
           {savedItems.length > 0 && (
             <>
@@ -60,7 +70,7 @@ export default function SavedScreen() {
                 style={styles.actionButton}
                 onPress={toggleDeleteMode}
               >
-                <Text style={styles.actionButtonText}>
+                <Text style={[styles.actionButtonText, { color: tintColor }]}>
                   {isDeleting ? 'Done' : 'Edit'}
                 </Text>
               </TouchableOpacity>
@@ -70,7 +80,7 @@ export default function SavedScreen() {
                   style={[styles.actionButton, styles.clearButton]}
                   onPress={handleClearAll}
                 >
-                  <Text style={[styles.actionButtonText, styles.clearButtonText]}>
+                  <Text style={[styles.actionButtonText, styles.clearButtonText, { color: errorColor }]}>
                     Clear All
                   </Text>
                 </TouchableOpacity>
@@ -123,7 +133,6 @@ export default function SavedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
   },
   header: {
     flexDirection: 'row',
@@ -136,7 +145,6 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: 'Inter_700Bold',
     fontSize: 26,
-    color: '#111',
   },
   headerActions: {
     flexDirection: 'row',
@@ -150,14 +158,11 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 15,
-    color: Colors.light.tint,
   },
   clearButton: {
     marginLeft: 8,
   },
-  clearButtonText: {
-    color: '#ff3b30',
-  },
+  clearButtonText: {},
   content: {
     flex: 1,
   },

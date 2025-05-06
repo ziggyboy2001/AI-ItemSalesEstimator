@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,7 +8,7 @@ import { Clock, ArrowRight, Trash2 } from 'lucide-react-native';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import EmptyState from '@/components/EmptyState';
-import Colors from '@/constants/Colors';
+import { useThemeColor } from '@/constants/useThemeColor';
 
 export default function HistoryScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -18,14 +18,23 @@ export default function HistoryScreen() {
   const { recentSearches, clearRecentSearches } = useRecentSearches();
   const { searchHistory, clearSearchHistory, removeFromHistory } = useSearchHistory();
 
-  const handleSearchPress = (query) => {
+  // THEME COLORS
+  const backgroundColor = useThemeColor('background');
+  const cardColor = useThemeColor('background');
+  const textColor = useThemeColor('text');
+  const subtleText = useThemeColor('tabIconDefault');
+  const borderColor = useThemeColor('tabIconDefault');
+  const tintColor = useThemeColor('tint');
+  const errorColor = useThemeColor('error');
+
+  const handleSearchPress = (query: string) => {
     router.push({
       pathname: '/',
       params: { q: query }
     });
   };
 
-  const handleViewItem = (itemId, itemData) => {
+  const handleViewItem = (itemId: string, itemData: any) => {
     router.push({
       pathname: `/item/${itemId}`,
       params: { data: JSON.stringify(itemData) }
@@ -42,12 +51,12 @@ export default function HistoryScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}> 
       <Animated.View 
         style={styles.header}
         entering={FadeInDown.delay(100).duration(400)}
       >
-        <Text style={styles.title}>Search History</Text>
+        <Text style={[styles.title, { color: textColor }]}>Search History</Text>
         <View style={styles.headerActions}>
           {searchHistory.length > 0 && (
             <>
@@ -55,19 +64,16 @@ export default function HistoryScreen() {
                 style={styles.actionButton}
                 onPress={toggleDeleteMode}
               >
-                <Text style={styles.actionButtonText}>
+                <Text style={[styles.actionButtonText, { color: tintColor }]}>
                   {isDeleting ? 'Done' : 'Edit'}
                 </Text>
               </TouchableOpacity>
-              
               {isDeleting && (
                 <TouchableOpacity
                   style={[styles.actionButton, styles.clearButton]}
                   onPress={handleClearAll}
                 >
-                  <Text style={[styles.actionButtonText, styles.clearButtonText]}>
-                    Clear All
-                  </Text>
+                  <Text style={[styles.actionButtonText, styles.clearButtonText, { color: errorColor }]}>Clear All</Text>
                 </TouchableOpacity>
               )}
             </>
@@ -89,33 +95,32 @@ export default function HistoryScreen() {
                 layout={Layout.springify()}
               >
                 <TouchableOpacity
-                  style={styles.historyItem}
+                  style={[styles.historyItem, { backgroundColor: cardColor, shadowColor: borderColor }]}
                   onPress={() => handleViewItem(item.itemId, item)}
                 >
                   <View style={styles.historyItemContent}>
-                    <View style={styles.historyIconContainer}>
-                      <Clock size={18} color="#777" />
+                    <View style={[styles.historyIconContainer, { backgroundColor: borderColor }] }>
+                      <Clock size={18} color={subtleText} />
                     </View>
                     <View style={styles.historyItemText}>
-                      <Text style={styles.historyItemQuery}>{item.query}</Text>
-                      <Text style={styles.historyItemTitle} numberOfLines={1}>
+                      <Text style={[styles.historyItemQuery, { color: textColor }]}>{item.query}</Text>
+                      <Text style={[styles.historyItemTitle, { color: subtleText }]} numberOfLines={1}>
                         {item.title}
                       </Text>
-                      <Text style={styles.historyItemTime}>
+                      <Text style={[styles.historyItemTime, { color: subtleText }]}>
                         {new Date(item.timestamp).toLocaleString()}
                       </Text>
                     </View>
                   </View>
-                  
                   {isDeleting ? (
                     <TouchableOpacity
                       style={styles.deleteButton}
                       onPress={() => removeFromHistory(item.id)}
                     >
-                      <Trash2 size={20} color="#ff3b30" />
+                      <Trash2 size={20} color={errorColor} />
                     </TouchableOpacity>
                   ) : (
-                    <ArrowRight size={16} color="#bbb" />
+                    <ArrowRight size={16} color={subtleText} />
                   )}
                 </TouchableOpacity>
               </Animated.View>
@@ -137,7 +142,6 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
   },
   header: {
     flexDirection: 'row',
@@ -150,7 +154,6 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: 'Inter_700Bold',
     fontSize: 26,
-    color: '#111',
   },
   headerActions: {
     flexDirection: 'row',
@@ -164,14 +167,11 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 15,
-    color: Colors.light.tint,
   },
   clearButton: {
     marginLeft: 8,
   },
-  clearButtonText: {
-    color: '#ff3b30',
-  },
+  clearButtonText: {},
   content: {
     flex: 1,
   },
@@ -183,11 +183,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -202,7 +200,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -213,19 +210,15 @@ const styles = StyleSheet.create({
   historyItemQuery: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
-    color: '#333',
-    marginBottom: 4,
   },
   historyItemTitle: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
-    color: '#666',
     marginBottom: 4,
   },
   historyItemTime: {
     fontFamily: 'Inter_400Regular',
     fontSize: 12,
-    color: '#999',
   },
   deleteButton: {
     padding: 8,

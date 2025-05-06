@@ -15,24 +15,11 @@ export default function TabLayout() {
         tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].tabIconDefault,
         tabBarStyle: {
           borderTopWidth: 0,
-          backgroundColor: 'transparent',
+          backgroundColor: Colors[colorScheme ?? 'light'].background,
           elevation: 0,
           height: 85,
           paddingBottom: 25,
         },
-        tabBarBackground: () => (
-          <BlurView 
-            tint={colorScheme === 'dark' ? 'dark' : 'light'}
-            intensity={80} 
-            style={{ 
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-            }}
-          />
-        ),
         headerShown: false,
       }}
     >

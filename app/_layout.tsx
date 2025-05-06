@@ -1,11 +1,17 @@
-import { useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts } from 'expo-font';
 import { useThemeColor } from '@/constants/useThemeColor';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
 
 // Keep the splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
@@ -30,11 +36,12 @@ export default function RootLayout() {
     onLayoutRootView();
   }, [onLayoutRootView]);
 
+  // All hooks must be called before any return
+  const backgroundColor = useThemeColor('background');
+
   if (!fontsLoaded && !fontError) {
     return null;
   }
-
-  const backgroundColor = useThemeColor('background');
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
