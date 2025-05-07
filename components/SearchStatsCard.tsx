@@ -4,6 +4,8 @@ import { DollarSign, Users, Star, Package, TrendingUp, ChevronDown, ChevronUp } 
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
 import { useThemeColor } from '@/constants/useThemeColor';
 
+//test comment
+
 interface SearchStatsCardProps {
   stats: {
     averagePrice: number;
