@@ -1,45 +1,58 @@
+import React from 'react';
 import { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
-import { DollarSign, Users, Star, Package, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react-native';
-import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
+import { StyleSheet, View, Text, Platform } from 'react-native';
+import { ProgressBarAndroid } from 'react-native';
+import { DollarSign, TrendingUp, Clock, Award, ThumbsUp, Users } from 'lucide-react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useThemeColor } from '@/constants/useThemeColor';
 
 //test comment
 
 interface SearchStatsCardProps {
   stats: {
-    averagePrice: number;
-    priceRange: {
-      min: number;
-      max: number;
-    };
-    totalItems: number;
-    topRatedSellers: number;
-    averageSellerRating: number;
-    conditionBreakdown: Record<string, number>;
-    itemsSold: number;
+    average_price: number;
+    min_price: number;
+    max_price: number;
+    median_price?: number;
+    results: number;
+    most_recent_sale?: { price: number; date: string };
+    resaleability_score: number; // 1-99
+    match_quality: number; // 0-100 (percent)
+    unique_sellers?: number;
+    market_activity?: string;
   };
+  purchasePrice?: number;
 }
 
-export default function SearchStatsCard({ stats }: SearchStatsCardProps) {
-  const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
+// Cross-platform ProgressBar
+function ProgressBar({ progress, color }: { progress: number; color: string }) {
+  if (Platform.OS === 'ios') {
+    // Simple fallback for iOS: use a View-based bar
+    return (
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: '#eee', marginVertical: 2, overflow: 'hidden' }}>
+        <View style={{ height: 8, borderRadius: 4, backgroundColor: color, width: `${Math.max(0, Math.min(1, progress)) * 100}%` }} />
+      </View>
+    );
+  }
+  return <ProgressBarAndroid styleAttr="Horizontal" indeterminate={false} progress={progress} color={color} style={{ height: 8, borderRadius: 4, marginVertical: 2 }} />;
+}
+
+export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCardProps) {
+  if (!stats) return null;
+
+  const profit = purchasePrice ? stats.average_price - purchasePrice : null;
+  const margin = purchasePrice ? (profit! / purchasePrice) : null;
+  const profitColor = profit == null ? '#333' : profit > 0 ? '#2ecc40' : '#ff4136';
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
   const cardText = useThemeColor('text');
   const cardSubtle = useThemeColor('tabIconDefault');
-  const cardBorder = useThemeColor('tabIconDefault');
   const cardTint = useThemeColor('tint');
   const cardSuccess = useThemeColor('success');
   const cardError = useThemeColor('error');
 
-  const formatPrice = (price: number) => {
-    return `$${price.toFixed(2)}`;
-  };
-
-  const formatPercentage = (value: number) => {
-    return `${value.toFixed(1)}%`;
-  };
+  const formatPrice = (price: number) => `$${price.toFixed(2)}`;
 
   return (
     <Animated.View 
@@ -47,65 +60,135 @@ export default function SearchStatsCard({ stats }: SearchStatsCardProps) {
       entering={FadeInDown.delay(300).duration(400)}
     >
       <View style={styles.header}>
-        <Text style={[styles.title, { color: cardText }]}>Search Statistics</Text>
+        <Text style={[styles.title, { color: cardText }]}>Market Snapshot</Text>
       </View>
 
       <View style={styles.statsGrid}>
         <View style={styles.statItem}>
           <DollarSign size={20} color={cardTint} />
-          <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.averagePrice)}</Text>
-          <Text style={[styles.statLabel, { color: cardSubtle }]}>Avg. Price</Text>
+          <View style={{ marginLeft: 8 }}>
+            <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.average_price)}</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>Avg. Price</Text>
+          </View>
         </View>
-
+        {/* <View style={styles.statItem}>
+          <DollarSign size={20} color={cardTint} />
+          <View style={{ marginLeft: 8 }}>
+            <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.median_price ?? 0)}</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>Median</Text>
+          </View>
+        </View> */}
+        <View style={styles.statItem}>
+          <DollarSign size={20} color={cardTint} />
+          <View style={{ marginLeft: 8 }}>
+            <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.min_price)}</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>Min</Text>
+          </View>
+        </View>
+        <View style={styles.statItem}>
+          <DollarSign size={20} color={cardTint} />
+          <View style={{ marginLeft: 8 }}>
+            <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.max_price)}</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>Max</Text>
+          </View>
+        </View>
         <View style={styles.statItem}>
           <Users size={20} color={cardTint} />
-          <Text style={[styles.statValue, { color: cardText }]}>{stats.itemsSold}</Text>
-          <Text style={[styles.statLabel, { color: cardSubtle }]}>Items Sold</Text>
+          <View style={{ marginLeft: 8 }}>
+            <Text style={[styles.statValue, { color: cardText }]}>{stats.results}</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>Results</Text>
+          </View>
         </View>
-
-        <View style={styles.statItem}>
-          <Star size={20} color={cardTint} />
-          <Text style={[styles.statValue, { color: cardText }]}>{formatPercentage(stats.averageSellerRating)}</Text>
-          <Text style={[styles.statLabel, { color: cardSubtle }]}>Avg. Rating</Text>
-        </View>
-
-        <View style={styles.statItem}>
-          <Package size={20} color={cardTint} />
-          <Text style={[styles.statValue, { color: cardText }]}>{stats.totalItems}</Text>
-          <Text style={[styles.statLabel, { color: cardSubtle }]}>Total Items</Text>
-        </View>
-      </View>
-
-      <View style={styles.priceRange}>
-        <TrendingUp size={16} color={cardSubtle} />
-        <Text style={[styles.priceRangeText, { color: cardSubtle }]}>Price Range: {formatPrice(stats.priceRange.min)} - {formatPrice(stats.priceRange.max)}</Text>
-      </View>
-
-      <TouchableOpacity 
-        style={[styles.conditionHeader, { borderTopColor: cardBorder }]}
-        onPress={() => setIsBreakdownOpen(!isBreakdownOpen)}
-      >
-        <Text style={[styles.conditionTitle, { color: cardText }]}>Condition Breakdown</Text>
-        {isBreakdownOpen ? (
-          <ChevronUp size={20} color={cardSubtle} />
-        ) : (
-          <ChevronDown size={20} color={cardSubtle} />
-        )}
-      </TouchableOpacity>
-
-      {isBreakdownOpen && (
-        <Animated.View 
-          style={styles.conditionBreakdown}
-          entering={FadeInDown.duration(200)}
-          layout={Layout.springify()}
-        >
-          {Object.entries(stats.conditionBreakdown).map(([condition, count]) => (
-            <View key={condition} style={styles.conditionItem}>
-              <Text style={[styles.conditionLabel, { color: cardSubtle }]}>{condition}:</Text>
-              <Text style={[styles.conditionCount, { color: cardText }]}>{count}</Text>
+        {stats.unique_sellers !== undefined && (
+          <View style={styles.statItem}>
+            <Users size={20} color={cardTint} />
+            <View style={{ marginLeft: 8 }}>
+              <Text style={[styles.statValue, { color: cardText }]}>{stats.unique_sellers}</Text>
+              <Text style={[styles.statLabel, { color: cardSubtle }]}>Sellers</Text>
             </View>
-          ))}
-        </Animated.View>
+          </View>
+        )}
+        {stats.market_activity && (
+          <View style={styles.statItem}>
+            <TrendingUp size={20} color={cardTint} />
+            <View style={{ marginLeft: 8 }}>
+              <Text style={[styles.statValue, { color: cardText }]}>{stats.market_activity}</Text>
+              <Text style={[styles.statLabel, { color: cardSubtle }]}>Activity</Text>
+            </View>
+          </View>
+        )}
+        {stats.most_recent_sale && (
+          <View style={styles.statItem}>
+            <Clock size={20} color={cardTint} />
+            <View style={{ marginLeft: 8 }}>
+              <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.most_recent_sale.price ?? 0)}</Text>
+              <Text style={[styles.statLabel, { color: cardSubtle }]}>Recent</Text>
+              <Text style={[styles.statSubLabel, { color: cardText }]}> {
+                (() => {
+                  const d = stats.most_recent_sale.date;
+                  if (!d) return '--';
+                  const parsed = new Date(d);
+                  if (parsed.toString() === 'Invalid Date') return d;
+                  return parsed.toLocaleDateString();
+                })()
+              } </Text>
+            </View>
+          </View>
+        )}
+        {/* {profit !== null && (
+          <View style={styles.statItem}>
+            <DollarSign size={20} color={profit > 0 ? cardSuccess : cardError} />
+            <View style={{ marginLeft: 8 }}>
+              <Text style={[styles.statValue, { color: profit > 0 ? cardSuccess : cardError }]}>{profit > 0 ? '+' : ''}{profit.toFixed(2)}</Text>
+              <Text style={[styles.statLabel, { color: cardSubtle }]}>Profit/Loss</Text>
+            </View>
+          </View>
+        )} */}
+      </View>
+
+      <View style={styles.scoreRow}>
+        <Award size={18} color={cardSuccess} />
+        <Text style={[styles.scoreLabel, { color: cardText }]}>Resaleability</Text>
+        <Text style={[styles.scoreValue, { color: cardSuccess }]}>{stats.resaleability_score}</Text>
+      </View>
+      <ProgressBar progress={stats.resaleability_score / 100} color="#2ecc40" />
+
+      {/* <View style={styles.scoreRow}>
+        <ThumbsUp size={18} color={cardTint} />
+        <Text style={[styles.scoreLabel, { color: cardText }]}>Match Quality</Text>
+        <Text style={[styles.scoreValue, { color: cardTint }]}>{stats.match_quality}%</Text>
+      </View> */}
+      {/* <ProgressBar progress={stats.match_quality / 100} color="#0074d9" /> */}
+
+      {/* Margin/Profit Row */}
+      {margin !== null && (
+        <View style={{ marginTop: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <DollarSign size={16} color={profitColor} style={{ marginRight: 4 }} />
+              <Text style={[styles.scoreLabel, { color: cardText, fontSize: 14, marginLeft: 0, fontWeight: 'bold' }]}>Your Margin</Text>
+            </View>
+            <Text style={[styles.scoreValue, { color: profitColor, fontSize: 14 }]}>{margin > 0 ? '+' : ''}{margin.toFixed(1)}%</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <ProgressBar progress={Math.max(0, Math.min(1, margin))} color={profitColor} />
+            </View>
+            <View style={{
+              backgroundColor: profitColor,
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              paddingVertical: 4,
+              minWidth: 60,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>
+                {(profit ?? 0) > 0 ? '$' : ''}{(profit ?? 0).toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        </View>
       )}
     </Animated.View>
   );
@@ -122,7 +205,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   header: {
-    marginBottom: 16,
+    marginBottom: 8,
   },
   title: {
     fontFamily: 'Inter_600SemiBold',
@@ -131,61 +214,67 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    justifyContent: 'flex-start',
+    marginBottom: 0,
   },
   statItem: {
-    width: '48%',
+    width: '33.33%',
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 8,
+    paddingRight: 4,
   },
   statValue: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
-    marginLeft: 8,
-    marginRight: 4,
+    marginBottom: 2,
   },
   statLabel: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
+    textAlign: 'left',
   },
-  priceRange: {
+  statSubLabel: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#aaa',
+  },
+  scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 4,
   },
-  priceRangeText: {
+  scoreLabel: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 14,
+    fontSize: 15,
+    marginLeft: 8,
+    marginRight: 4,
+  },
+  scoreValue: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
     marginLeft: 8,
   },
-  conditionHeader: {
+  progressBarBg: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#eee',
+    borderRadius: 4,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  activityRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    borderTopWidth: 1,
+    marginTop: 4,
   },
-  conditionTitle: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-  },
-  conditionBreakdown: {
-    marginTop: 8,
-  },
-  conditionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  conditionLabel: {
+  activityText: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-  },
-  conditionCount: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
+    fontSize: 13,
+    marginLeft: 6,
   },
 }); 

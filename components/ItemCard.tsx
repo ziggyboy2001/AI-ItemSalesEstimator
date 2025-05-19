@@ -1,26 +1,41 @@
 import { StyleSheet, View, Text, TouchableOpacity, Image } from 'react-native';
 import { formatDistanceToNow } from '@/utils/dateUtils';
-import { ShoppingBag, Trash2 } from 'lucide-react-native';
+import { ShoppingBag, ExternalLink } from 'lucide-react-native';
 import Animated, { FadeInRight } from 'react-native-reanimated';
 import { useThemeColor } from '@/constants/useThemeColor';
 
 interface ItemCardProps {
-  item: any;
+  item: {
+    title: string;
+    sale_price: number;
+    image_url?: string;
+    condition?: string;
+    date_sold: string;
+    buying_format?: string;
+    shipping_price?: string | number;
+    link?: string;
+  };
   onPress: () => void;
-  isDeleting?: boolean;
-  onDelete?: () => void;
+  isOutlier?: 'high' | 'low' | null;
+  isMostRecent?: boolean;
+  purchasePrice?: number;
 }
 
-export default function ItemCard({ item, onPress, isDeleting, onDelete }: ItemCardProps) {
+export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent = false, purchasePrice }: ItemCardProps) {
   if (!item) return null;
 
-  const backgroundColor = useThemeColor('background');
+  const backgroundColor = isOutlier === 'high'
+    ? '#e6f9ed' // light green
+    : isOutlier === 'low'
+      ? useThemeColor('background') // light red possibly?
+      : useThemeColor('background');
   const textColor = useThemeColor('text');
   const priceColor = useThemeColor('tint');
   const conditionColor = useThemeColor('tabIconDefault');
   const timeColor = useThemeColor('tabIconDefault');
-  const estimateColor = useThemeColor('success');
-  const deleteBg = 'rgba(255, 59, 48, 0.1)'; // error color, can be improved for dark mode
+  const badgeColor = '#FFD700'; // gold for 'Most Recent'
+  const profit = purchasePrice !== undefined ? (item.sale_price - purchasePrice) : undefined;
+  const profitColor = profit !== undefined ? (profit > 0 ? '#2ecc40' : '#e74c3c') : priceColor;
 
   return (
     <TouchableOpacity
@@ -29,9 +44,9 @@ export default function ItemCard({ item, onPress, isDeleting, onDelete }: ItemCa
       activeOpacity={0.7}
     >
       <View style={styles.imageContainer}>
-        {item.image ? (
+        {item.image_url ? (
           <Image 
-            source={{ uri: item.image }} 
+            source={{ uri: item.image_url }} 
             style={styles.image}
             resizeMode="cover"
           />
@@ -40,54 +55,69 @@ export default function ItemCard({ item, onPress, isDeleting, onDelete }: ItemCa
             <ShoppingBag size={24} color="#ccc" />
           </View>
         )}
+        {isMostRecent && (
+          <View style={[styles.badge, { backgroundColor: badgeColor }]}> 
+            <Text style={styles.badgeText}>Most Recent</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.contentContainer}>
         <Text style={[styles.title, { color: textColor }]} numberOfLines={2}>
           {item.title}
         </Text>
-        
-        <View style={styles.detailsContainer}>
-          <View>
-            <Text style={[styles.price, { color: priceColor }]}>
-              {typeof item.price === 'string' ? item.price : `$${item.price?.toFixed(2) || 'N/A'}`}
-            </Text>
-            
-            {item.condition && (
-              <Text style={[styles.condition, { color: conditionColor }]}>
-                {item.condition}
-              </Text>
-            )}
+        <View style={styles.detailsRow}>
+          <View style={styles.detailBlock}>
+            <Text style={[styles.detailNumber, { color: priceColor }]}>{item.sale_price?.toFixed(2) ?? 'N/A'}</Text>
+            <Text style={styles.detailLabel}>Sold Price</Text>
           </View>
-
-          {item.timestamp && (
-            <Text style={[styles.time, { color: timeColor }]}>
-              {formatDistanceToNow(new Date(item.timestamp))}
-            </Text>
+          {item.shipping_price && (
+            <View style={styles.detailBlock}>
+              <Text style={[styles.detailNumber, { color: priceColor }]}>{
+                typeof item.shipping_price === 'number'
+                  ? `$${item.shipping_price}`
+                  : (typeof item.shipping_price === 'string' && item.shipping_price.toLowerCase().includes('free'))
+                    ? 'Free'
+                    : item.shipping_price
+              }</Text>
+              <Text style={styles.detailLabel}>Shipping</Text>
+            </View>
+          )}
+          {item.buying_format && (
+            <View style={styles.detailBlock}>
+              <Text style={[styles.detailNumber, { color: priceColor }]}>{item.buying_format}</Text>
+              <Text style={styles.detailLabel}>Format</Text>
+            </View>
+          )}
+          {item.date_sold && (
+            <View style={styles.detailBlock}>
+              <Text style={[styles.detailNumber, { color: priceColor }]}>{(() => {
+                const d = item.date_sold;
+                if (!d) return '--';
+                const parsed = new Date(d);
+                if (parsed.toString() === 'Invalid Date') return d;
+                return parsed.toLocaleDateString();
+              })()}</Text>
+              <Text style={styles.detailLabel}>Date Sold</Text>
+            </View>
+          )}
+          {profit !== undefined && (
+            <View style={styles.detailBlock}>
+              <Text style={[styles.detailNumber, { color: profitColor }]}>{profit > 0 ? '+' : ''}{profit.toFixed(2)}</Text>
+              <Text style={styles.detailLabel}>Profit/Loss</Text>
+            </View>
           )}
         </View>
-
-        {item.estimatedResaleValue && (
-          <Animated.View 
-            style={styles.estimateContainer}
-            entering={FadeInRight.duration(400)}
-          >
-            <Text style={[styles.estimateLabel, { color: conditionColor }]}>Est. Resale:</Text>
-            <Text style={[styles.estimateValue, { color: estimateColor }]}>
-              ${item.estimatedResaleValue.toFixed(2)}
-            </Text>
-          </Animated.View>
+        {item.condition && (
+          <Text style={[styles.condition, { color: conditionColor }]}>{item.condition}</Text>
+        )}
+        {item.link && (
+          <View style={styles.linkRow}>
+            <ExternalLink size={16} color={priceColor} />
+            <Text style={styles.linkText} numberOfLines={1}>eBay Listing</Text>
+          </View>
         )}
       </View>
-
-      {isDeleting && onDelete && (
-        <TouchableOpacity 
-          style={[styles.deleteButton, { backgroundColor: deleteBg }]}
-          onPress={onDelete}
-        >
-          <Trash2 size={22} color={useThemeColor('error')} />
-        </TouchableOpacity>
-      )}
     </TouchableOpacity>
   );
 }
@@ -108,6 +138,7 @@ const styles = StyleSheet.create({
   imageContainer: {
     width: 100,
     height: 100,
+    position: 'relative',
   },
   image: {
     width: '100%',
@@ -121,6 +152,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  badge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    zIndex: 2,
+  },
+  badgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    color: '#333',
+  },
   contentContainer: {
     flex: 1,
     padding: 12,
@@ -132,15 +177,27 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 6,
   },
-  detailsContainer: {
+  detailsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    marginBottom: 6,
   },
-  price: {
+  detailBlock: {
+    alignItems: 'flex-start',
+    marginRight: 18,
+    marginBottom: 4,
+    minWidth: 60,
+  },
+  detailNumber: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
     color: '#111',
+  },
+  detailLabel: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
   },
   condition: {
     fontFamily: 'Inter_400Regular',
@@ -148,34 +205,17 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  time: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    color: '#999',
-  },
-  estimateContainer: {
+  linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    marginTop: 8,
   },
-  estimateLabel: {
-    fontFamily: 'Inter_500Medium',
+  linkText: {
+    fontFamily: 'Inter_400Regular',
     fontSize: 13,
-    color: '#666',
-    marginRight: 4,
-  },
-  estimateValue: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 14,
-    color: '#34C759',
-  },
-  deleteButton: {
-    width: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    color: '#007aff',
+    marginLeft: 4,
+    textDecorationLine: 'underline',
+    maxWidth: 120,
   },
 });

@@ -7,8 +7,10 @@ import { RefreshControl } from 'react-native-gesture-handler';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
 import { Search as SearchIcon, X } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { differenceInDays } from 'date-fns';
 
-import { searchEbayItems } from '@/services/ebayApi';
+import { inferEbayRequestFields } from '@/utils/gptEbayRequestInference';
+import { fetchEbayCompletedItems } from '@/services/ebayCompletedApi';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import EmptyState from '@/components/EmptyState';
 import ItemCard from '@/components/ItemCard';
@@ -25,7 +27,98 @@ interface SearchResult {
   condition?: string;
   timestamp: string;
   query: string;
+  url?: string;
+  shipping?: number | string;
+  buyingFormat?: string;
   [key: string]: any;
+}
+
+function calculateStatsAndFlags(items: import('@/services/ebayCompletedApi').EbayCompletedItem[]): { stats: any, itemFlags: { isOutlier: string | null, isMostRecent: boolean }[] } {
+  if (!items || items.length === 0) return {
+    stats: null,
+    itemFlags: [],
+  };
+
+  // Extract sale prices and dates
+  const prices: number[] = items.map((item: import('@/services/ebayCompletedApi').EbayCompletedItem) => item.sale_price);
+  const dates: Date[] = items.map((item: import('@/services/ebayCompletedApi').EbayCompletedItem) => new Date(item.date_sold));
+  const min_price = Math.min(...prices);
+  const max_price = Math.max(...prices);
+  const average_price = prices.reduce((a: number, b: number) => a + b, 0) / prices.length;
+  const stddev = Math.sqrt(prices.reduce((a: number, b: number) => a + Math.pow(b - average_price, 2), 0) / prices.length);
+
+  // Outlier logic: 1 stddev from mean
+  const outlierFlags: (string | null)[] = prices.map((price: number) => {
+    if (price >= average_price + stddev) return 'high';
+    if (price <= average_price - stddev) return 'low';
+    return null;
+  });
+
+  // Most recent sale
+  let mostRecentIdx = 0;
+  let mostRecentDate = dates[0];
+  for (let i = 1; i < dates.length; i++) {
+    if (dates[i] > mostRecentDate) {
+      mostRecentDate = dates[i];
+      mostRecentIdx = i;
+    }
+  }
+
+  // Resaleability score: based on number of comps and price stability
+  let resaleability_score = Math.round(
+    Math.min(99, Math.max(1, (items.length * 2) + (50 - Math.min(50, stddev))))
+  );
+
+  // Match quality: based on number of comps and price range
+  let match_quality = Math.round(
+    Math.min(100, Math.max(10, (items.length * 2) + (100 - (max_price - min_price))))
+  );
+
+  // Most recent sale info
+  const most_recent_sale = {
+    price: items[mostRecentIdx].sale_price,
+    date: items[mostRecentIdx].date_sold,
+  };
+
+  // Market activity (simple string)
+  let market_activity = '';
+  if (items.length > 30) market_activity = 'Very Active';
+  else if (items.length > 10) market_activity = 'Active';
+  else if (items.length > 0) market_activity = 'Low Activity';
+
+  return {
+    stats: {
+      average_price,
+      min_price,
+      max_price,
+      results: items.length,
+      most_recent_sale,
+      resaleability_score,
+      match_quality,
+      market_activity,
+    },
+    itemFlags: items.map((item: import('@/services/ebayCompletedApi').EbayCompletedItem, idx: number) => ({
+      isOutlier: outlierFlags[idx],
+      isMostRecent: idx === mostRecentIdx,
+    })),
+  };
+}
+
+// Add mapping function
+function mapEbayItemToSearchResult(item: import('@/services/ebayCompletedApi').EbayCompletedItem, query: string): SearchResult {
+  return {
+    itemId: item.item_id,
+    title: item.title,
+    price: item.sale_price,
+    image: item.image_url,
+    condition: item.condition,
+    timestamp: item.date_sold,
+    query,
+    url: item.link,
+    shipping: item.shipping_price,
+    buyingFormat: item.buying_format,
+    // ...add any other fields as needed
+  };
 }
 
 export default function SearchScreen() {
@@ -38,6 +131,9 @@ export default function SearchScreen() {
   const [aiDescription, setAiDescription] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [stats, setStats] = useState<any>(null);
+  const [itemFlags, setItemFlags] = useState<any[]>([]);
+  const [purchasePrice, setPurchasePrice] = useState<string>('');
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -54,13 +150,20 @@ export default function SearchScreen() {
 
   const handleSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim()) return;
-
     setIsLoading(true);
     setError('');
-
     try {
-      const data = await searchEbayItems(query);
-      setResults(data);
+      const ebayRequest = await inferEbayRequestFields(query);
+      const data = await fetchEbayCompletedItems(ebayRequest);
+      const items = (data.items || []);
+      console.log('Raw API items:', items);
+      const mappedResults = items.map(item => mapEbayItemToSearchResult(item, query));
+      console.log('Mapped results:', mappedResults);
+      // Calculate stats and flags
+      const { stats: newStats, itemFlags: newItemFlags } = calculateStatsAndFlags(items);
+      setStats(newStats);
+      setItemFlags(newItemFlags);
+      setResults(mappedResults);
       addRecentSearch(query);
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
@@ -177,11 +280,14 @@ export default function SearchScreen() {
     }
   };
 
-  const handleAiConfirm = () => {
+  const handleAiConfirm = async () => {
     setSearchQuery(aiDescription);
     setAiModalVisible(false);
-    handleSearch(aiDescription);
+    await handleSearch(aiDescription);
   };
+
+  // Add debug log for results before render
+  console.log('Results state before render:', results);
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}>
@@ -193,8 +299,8 @@ export default function SearchScreen() {
           style={styles.header}
           entering={FadeInDown.delay(100).duration(400)}
         >
-          <Text style={[styles.title, { color: textColor }]}>eBay Resale Estimator</Text>
-          <Text style={[styles.subtitle, { color: subtleText }]}>Find the true value of any item</Text>
+          <Text style={[styles.title, { color: textColor }]}>BidPeek</Text>
+          <Text style={[styles.subtitle, { color: subtleText }]}>Find the true resale value of any item</Text>
         </Animated.View>
 
         <Animated.View 
@@ -202,7 +308,7 @@ export default function SearchScreen() {
           entering={FadeInDown.delay(200).duration(400)}
           layout={Layout.springify()}
         >
-          <View style={[styles.searchInputContainer, { backgroundColor: cardColor, borderColor: borderColor, shadowColor: borderColor }] }>
+          <View style={[styles.searchInputContainer, { backgroundColor: cardColor, borderColor: borderColor, shadowColor: borderColor } ] }>
             <SearchIcon size={20} color={subtleText} style={styles.searchIcon} />
             <TextInput
               style={[styles.searchInput, { color: textColor }]}
@@ -271,16 +377,60 @@ export default function SearchScreen() {
             data={results}
             keyExtractor={(item, index) => `${item?.itemId || 'item'}-${index}`}
             ListHeaderComponent={() => (
-              <SearchStatsCard stats={calculateSearchStats(results)} />
+              <>
+                {stats && (
+                  <>
+                    <View style={{ marginHorizontal: 16, marginBottom: 8 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '600', marginBottom: 4, color: textColor }}>Your Purchase Price</Text>
+                      <TextInput
+                        style={{
+                          borderWidth: 1,
+                          borderColor: borderColor,
+                          borderRadius: 8,
+                          padding: 10,
+                          fontSize: 16,
+                          color: textColor,
+                          backgroundColor: cardColor,
+                        }}
+                        placeholder="Enter what you paid (optional)"
+                        placeholderTextColor={subtleText}
+                        keyboardType="numeric"
+                        value={purchasePrice}
+                        onChangeText={setPurchasePrice}
+                        returnKeyType="done"
+                      />
+                    </View>
+                    <SearchStatsCard stats={stats} purchasePrice={parseFloat(purchasePrice) || undefined} />
+                  </>
+                )}
+              </>
             )}
-            renderItem={({ item, index }) => (
-              <Animated.View
-                entering={FadeInDown.delay(150 + index * 50).duration(400)}
-                layout={Layout.springify()}
-              >
-                <ItemCard item={item} onPress={() => handleItemPress(item)} />
-              </Animated.View>
-            )}
+            renderItem={({ item, index }) => {
+              console.log('Rendering card:', item.title, item.itemId);
+              return (
+                <Animated.View
+                  entering={FadeInDown.delay(150 + index * 50).duration(400)}
+                  layout={Layout.springify()}
+                >
+                  <ItemCard
+                    item={{
+                      title: item.title,
+                      sale_price: typeof item.price === 'number' ? item.price : Number(item.price),
+                      image_url: item.image,
+                      condition: item.condition,
+                      date_sold: item.timestamp,
+                      buying_format: item.buyingFormat,
+                      shipping_price: item.shipping,
+                      link: item.url,
+                    }}
+                    onPress={() => handleItemPress(item)}
+                    isOutlier={itemFlags[index]?.isOutlier}
+                    isMostRecent={itemFlags[index]?.isMostRecent}
+                    purchasePrice={parseFloat(purchasePrice) || undefined}
+                  />
+                </Animated.View>
+              );
+            }}
             contentContainerStyle={styles.resultsContainer}
             refreshControl={
               <RefreshControl
@@ -302,7 +452,7 @@ export default function SearchScreen() {
           style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, backgroundColor: tintColor, shadowColor: tintColor }]}
           onPress={handleIdentifyItem}
         >
-          <Text style={styles.searchButtonText}>Identify Item (AI)</Text>
+          <Text style={styles.searchButtonText}>Identify An Item</Text>
         </TouchableOpacity>
 
         <Modal

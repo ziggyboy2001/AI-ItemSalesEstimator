@@ -1,6 +1,8 @@
 import Constants from 'expo-constants';
 
+// Uses the OpenAI API key from Expo config extra (set in app.config.js or app.json)
 const OPENAI_API_KEY = Constants.expoConfig?.extra?.OPENAI_API_KEY;
+console.log('OPENAI_API_KEY (openaiVision):', OPENAI_API_KEY);
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 export async function identifyItemFromImage(base64Image: string): Promise<string> {
@@ -23,12 +25,15 @@ export async function identifyItemFromImage(base64Image: string): Promise<string
     ]
   };
 
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+  };
+  console.log('OpenAI headers (openaiVision):', headers);
+
   const response = await fetch(OPENAI_API_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
