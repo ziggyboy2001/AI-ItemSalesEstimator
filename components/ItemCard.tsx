@@ -114,7 +114,7 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
         {item.link && (
           <View style={styles.linkRow}>
             <ExternalLink size={16} color={priceColor} />
-            <Text style={styles.linkText} numberOfLines={1}>eBay Listing</Text>
+            <Text style={styles.linkText} numberOfLines={1}>Listing</Text>
           </View>
         )}
       </View>

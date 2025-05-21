@@ -311,8 +311,15 @@ export default function SearchScreen() {
           style={styles.header}
           entering={FadeInDown.delay(100).duration(400)}
         >
-          <Text style={[styles.title, { color: textColor }]}>BidPeek</Text>
-          <Text style={[styles.subtitle, { color: subtleText }]}>Find the true resale value of any item</Text>
+          <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+            <View>
+              <Text style={[styles.title, { color: textColor }]}>BidPeek</Text>
+              <Text style={[styles.subtitle, { color: subtleText }]}>Find the true resale value of any item</Text>
+            </View>
+            <View>
+              <Image source={require('../../assets/images/iconVector.png')} style={{width: 28, height: 28}} />
+            </View>
+          </View>
         </Animated.View>
 
         <Animated.View 
@@ -444,7 +451,7 @@ export default function SearchScreen() {
           style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, backgroundColor: tintColor, shadowColor: tintColor }]}
           onPress={handleIdentifyItem}
         >
-          <Text style={styles.searchButtonText}>Identify An Item</Text>
+          <Text style={styles.searchButtonText}>Identify an item with AI</Text>
         </TouchableOpacity>
 
         <Modal
@@ -474,7 +481,7 @@ export default function SearchScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'flex-end', width: '100%' }}>
                     <Button title="Cancel" onPress={() => setAiModalVisible(false)} color={subtleText} />
                     <View style={{ width: 12 }} />
-                    <Button title="Search eBay" onPress={handleAiConfirm} disabled={!aiDescription.trim()} color={tintColor} />
+                    <Button title="Search" onPress={handleAiConfirm} disabled={!aiDescription.trim()} color={tintColor} />
                   </View>
                 </>
               )}
@@ -511,7 +518,8 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     flexDirection: 'row',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
     marginBottom: 8,
   },
   searchInputContainer: {
@@ -555,13 +563,12 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   searchButtonText: {
-    color: '#fff',
+    color: '#000000',
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
   },
   recentSearchesContainer: {
     paddingHorizontal: 16,
-    paddingTop: 8,
     paddingBottom: 16,
   },
   recentSearchesTitle: {

@@ -80,7 +80,7 @@ export default function ItemDetailScreen() {
     if (!item) return;
     try {
       await Share.share({
-        message: `Check out this ${item.title} on eBay!`,
+        message: `Check out this ${item.title}!`,
         url: item.url || `https://www.ebay.com/itm/${item.itemId}`
       });
     } catch (error) {
@@ -215,7 +215,7 @@ export default function ItemDetailScreen() {
               onPress={handleOpenInBrowser}
             >
               <ExternalLink size={18} color="#fff" />
-              <Text style={styles.viewOnEbayText}>View on eBay</Text>
+              <Text style={styles.viewOnEbayText}>View Item</Text>
             </TouchableOpacity>
             {/* Re-Search Button */}
             {item.query && (

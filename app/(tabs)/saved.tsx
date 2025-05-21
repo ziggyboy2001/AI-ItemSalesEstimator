@@ -18,7 +18,7 @@ export default function HaulScreen() {
   const errorColor = useThemeColor('error');
   const cardColor = useThemeColor('background');
   const successColor = useThemeColor('success');
-  const btnBorderColor = useThemeColor('warning');
+  const btnBorderColor = useThemeColor('tint');
   const [loading, setLoading] = useState(true);
   const [haul, setHaul] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);

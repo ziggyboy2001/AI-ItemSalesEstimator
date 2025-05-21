@@ -167,7 +167,7 @@ export default function SettingsScreen() {
             {renderSettingItem({
               icon: <Key size={20} color={tintColor} />,
               title: 'API Key',
-              subtitle: 'Manage your eBay API credentials',
+              subtitle: 'Manage your API credentials',
               action: () => Alert.alert('API Settings', 'This feature is coming soon.'),
               isLast: true
             })}
@@ -190,7 +190,7 @@ export default function SettingsScreen() {
               icon: <Info size={20} color={tintColor} />,
               title: 'About This App',
               subtitle: 'Version 1.0.0',
-              action: () => Alert.alert('About', 'eBay Resale Estimator\nVersion 1.0.0\n\nAn app to help you estimate resale value of items on eBay.'),
+              action: () => Alert.alert('About', 'eBay Resale Estimator\nVersion 1.0.0\n\nAn app to help you estimate resale value of items.'),
               isLast: true
             })}
           </View>
@@ -212,7 +212,7 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
-        <Text style={[styles.footer, { color: subtleText }]}>eBay Resale Estimator © 2025</Text>
+        <Text style={[styles.footer, { color: subtleText }]}>BidPeek © 2025</Text>
       </ScrollView>
     </SafeAreaView>
   );
