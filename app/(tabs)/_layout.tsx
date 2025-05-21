@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { useColorScheme } from 'react-native';
-import { Search, History, Bookmark, Settings } from 'lucide-react-native';
+import { Search, History, Bookmark, Settings, ShoppingBag } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 
 import Colors from '@/constants/Colors';
@@ -40,8 +40,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="saved"
         options={{
-          title: 'Saved',
-          tabBarIcon: ({ color, size }) => <Bookmark size={size} color={color} />,
+          title: 'Haul',
+          tabBarIcon: ({ color, size }) => <ShoppingBag size={size} color={color} />,
         }}
       />
       <Tabs.Screen

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
@@ -12,6 +12,9 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
+import { supabase } from '../services/supabaseClient';
+import AuthScreen from './AuthScreen';
+import type { User } from '@supabase/supabase-js';
 
 // Keep the splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
@@ -25,6 +28,19 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    // Get initial user
+    supabase.auth.getUser().then(({ data }) => setUser(data?.user ?? null));
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
+  }, []);
 
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded || fontError) {
@@ -41,6 +57,15 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) {
     return null;
+  }
+
+  if (!user) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
+        <AuthScreen />
+        <StatusBar style="auto" />
+      </GestureHandlerRootView>
+    );
   }
 
   return (

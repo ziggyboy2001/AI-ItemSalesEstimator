@@ -54,10 +54,10 @@ export async function fetchEbayCompletedItems(request: EbayCompletedRequest): Pr
   }
 
   const data = await response.json();
-  console.log('eBay API full response:', data);
-  console.log('API response keys:', Object.keys(data));
-  console.log('data.items:', data.items, 'typeof:', typeof data.items, 'isArray:', Array.isArray(data.items));
-  console.log('data.products:', data.products, 'typeof:', typeof data.products, 'isArray:', Array.isArray(data.products));
+  // console.log('eBay API full response:', data);
+  // console.log('API response keys:', Object.keys(data));
+  // console.log('data.items:', data.items, 'typeof:', typeof data.items, 'isArray:', Array.isArray(data.items));
+  // console.log('data.products:', data.products, 'typeof:', typeof data.products, 'isArray:', Array.isArray(data.products));
   const { warning, success, average_price, median_price, min_price, max_price, results, total_results, pages_included, ...rest } = data;
   let items: EbayCompletedItem[] = [];
 

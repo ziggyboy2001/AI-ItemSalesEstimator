@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, RefreshControl, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
-import { Clock, ArrowRight, Trash2 } from 'lucide-react-native';
+import { Clock, ArrowRight, Trash2, ShoppingBag } from 'lucide-react-native';
 
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
@@ -12,11 +12,12 @@ import { useThemeColor } from '@/constants/useThemeColor';
 
 export default function HistoryScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { recentSearches, clearRecentSearches } = useRecentSearches();
-  const { searchHistory, clearSearchHistory, removeFromHistory } = useSearchHistory();
+  const { searchHistory, clearSearchHistory, removeFromHistory, refreshFromSupabase } = useSearchHistory();
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
@@ -34,10 +35,11 @@ export default function HistoryScreen() {
     });
   };
 
-  const handleViewItem = (itemId: string, itemData: any) => {
+  const handleViewItem = (item: any) => {
+    const itemId = item.itemId || item.id;
     router.push({
       pathname: `/item/${itemId}`,
-      params: { data: JSON.stringify(itemData) }
+      params: { data: JSON.stringify(item) }
     });
   };
 
@@ -48,6 +50,12 @@ export default function HistoryScreen() {
 
   const toggleDeleteMode = () => {
     setIsDeleting(!isDeleting);
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refreshFromSupabase();
+    setRefreshing(false);
   };
 
   return (
@@ -96,11 +104,17 @@ export default function HistoryScreen() {
               >
                 <TouchableOpacity
                   style={[styles.historyItem, { backgroundColor: cardColor, shadowColor: borderColor }]}
-                  onPress={() => handleViewItem(item.itemId, item)}
+                  onPress={() => handleViewItem(item)}
                 >
                   <View style={styles.historyItemContent}>
-                    <View style={[styles.historyIconContainer, { backgroundColor: borderColor }] }>
-                      <Clock size={18} color={subtleText} />
+                    <View style={styles.historyImageContainer}>
+                      {item.image ? (
+                        <Image source={{ uri: item.image }} style={styles.historyImage} resizeMode="cover" />
+                      ) : (
+                        <View style={styles.noImageContainer}>
+                          <ShoppingBag size={20} color={subtleText} />
+                        </View>
+                      )}
                     </View>
                     <View style={styles.historyItemText}>
                       <Text style={[styles.historyItemQuery, { color: textColor }]}>{item.query}</Text>
@@ -126,6 +140,9 @@ export default function HistoryScreen() {
               </Animated.View>
             )}
             contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
           />
         ) : (
           <EmptyState
@@ -196,13 +213,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  historyIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  historyImageContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#f7f7f7',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden',
+  },
+  historyImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+    backgroundColor: '#f7f7f7',
+  },
+  noImageContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f7f7f7',
+    borderRadius: 8,
   },
   historyItemText: {
     flex: 1,

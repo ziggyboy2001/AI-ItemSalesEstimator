@@ -18,6 +18,7 @@ import SearchStatsCard from '@/components/SearchStatsCard';
 import { calculateSearchStats } from '@/utils/calculateStats';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { identifyItemFromImage } from '@/utils/openaiVision';
+import { useSearchHistory } from '@/hooks/useSearchHistory';
 
 interface SearchResult {
   itemId: string;
@@ -138,6 +139,7 @@ export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { addRecentSearch, recentSearches } = useRecentSearches();
+  const { addToHistory } = useSearchHistory();
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
@@ -156,15 +158,25 @@ export default function SearchScreen() {
       const ebayRequest = await inferEbayRequestFields(query);
       const data = await fetchEbayCompletedItems(ebayRequest);
       const items = (data.items || []);
-      console.log('Raw API items:', items);
       const mappedResults = items.map(item => mapEbayItemToSearchResult(item, query));
-      console.log('Mapped results:', mappedResults);
-      // Calculate stats and flags
       const { stats: newStats, itemFlags: newItemFlags } = calculateStatsAndFlags(items);
       setStats(newStats);
       setItemFlags(newItemFlags);
       setResults(mappedResults);
       addRecentSearch(query);
+      // Save to search history
+      if (mappedResults.length > 0) {
+        addToHistory({
+          query,
+          title: mappedResults[0].title,
+          itemId: mappedResults[0].itemId,
+          image: mappedResults[0].image,
+          link: mappedResults[0].url,
+          price: mappedResults[0].price,
+        });
+      } else {
+        addToHistory({ query });
+      }
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
       console.error('Search error:', err);
@@ -172,7 +184,7 @@ export default function SearchScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [searchQuery, addRecentSearch]);
+  }, [searchQuery, addRecentSearch, addToHistory]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -287,7 +299,7 @@ export default function SearchScreen() {
   };
 
   // Add debug log for results before render
-  console.log('Results state before render:', results);
+  // console.log('Results state before render:', results);
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}>
@@ -380,33 +392,13 @@ export default function SearchScreen() {
               <>
                 {stats && (
                   <>
-                    <View style={{ marginHorizontal: 16, marginBottom: 8 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '600', marginBottom: 4, color: textColor }}>Your Purchase Price</Text>
-                      <TextInput
-                        style={{
-                          borderWidth: 1,
-                          borderColor: borderColor,
-                          borderRadius: 8,
-                          padding: 10,
-                          fontSize: 16,
-                          color: textColor,
-                          backgroundColor: cardColor,
-                        }}
-                        placeholder="Enter what you paid (optional)"
-                        placeholderTextColor={subtleText}
-                        keyboardType="numeric"
-                        value={purchasePrice}
-                        onChangeText={setPurchasePrice}
-                        returnKeyType="done"
-                      />
-                    </View>
                     <SearchStatsCard stats={stats} purchasePrice={parseFloat(purchasePrice) || undefined} />
                   </>
                 )}
               </>
             )}
             renderItem={({ item, index }) => {
-              console.log('Rendering card:', item.title, item.itemId);
+              // console.log('Rendering card:', item.title, item.itemId);
               return (
                 <Animated.View
                   entering={FadeInDown.delay(150 + index * 50).duration(400)}
@@ -505,7 +497,6 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 16,
   },
   title: {
     fontFamily: 'Inter_700Bold',
@@ -521,7 +512,6 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     padding: 16,
-    paddingTop: 8,
     marginBottom: 8,
   },
   searchInputContainer: {

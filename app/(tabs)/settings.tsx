@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollView, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -8,11 +8,14 @@ import { useSavedItems } from '@/hooks/useSavedItems';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import { useThemeColor } from '@/constants/useThemeColor';
+import { supabase } from '@/services/supabaseClient';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
+  const [haulHistory, setHaulHistory] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   
   const { clearSavedItems } = useSavedItems();
   const { clearSearchHistory } = useSearchHistory();
@@ -26,6 +29,24 @@ export default function SettingsScreen() {
   const tintColor = useThemeColor('tint');
   const errorColor = useThemeColor('error');
   const cardColor = useThemeColor('background');
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id ?? null));
+  }, []);
+
+  useEffect(() => {
+    const fetchHauls = async () => {
+      if (!userId) return;
+      const { data } = await supabase
+        .from('hauls')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('finished', true)
+        .order('finished_at', { ascending: false });
+      setHaulHistory(data || []);
+    };
+    if (userId) fetchHauls();
+  }, [userId]);
 
   const handleClearAllData = () => {
     Alert.alert(
@@ -111,7 +132,7 @@ export default function SettingsScreen() {
         <Text style={[styles.title, { color: textColor }]}>Settings</Text>
       </Animated.View>
 
-      <ScrollView style={styles.scrollView}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 32 }}>
         <Animated.View 
           style={styles.content}
           entering={FadeInDown.delay(200).duration(400)}
@@ -172,6 +193,22 @@ export default function SettingsScreen() {
               action: () => Alert.alert('About', 'eBay Resale Estimator\nVersion 1.0.0\n\nAn app to help you estimate resale value of items on eBay.'),
               isLast: true
             })}
+          </View>
+
+          {/* Haul History Section */}
+          <View style={{ margin: 16, padding: 16, borderRadius: 12, backgroundColor: cardColor }}>
+            <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 18, marginBottom: 8 }}>Haul History</Text>
+            {haulHistory.length === 0 ? (
+              <Text style={{ color: subtleText }}>No finished hauls yet.</Text>
+            ) : (
+              haulHistory.map(haul => (
+                <TouchableOpacity key={haul.id} style={{ marginBottom: 12 }} onPress={() => {/* TODO: View haul details */}}>
+                  <Text style={{ color: textColor, fontWeight: 'bold' }}>{haul.name}</Text>
+                  <Text style={{ color: subtleText, fontSize: 13 }}>Finished: {haul.finished_at ? new Date(haul.finished_at).toLocaleString() : ''}</Text>
+                  {/* TODO: Show profit summary for haul */}
+                </TouchableOpacity>
+              ))
+            )}
           </View>
         </Animated.View>
 

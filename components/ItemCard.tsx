@@ -25,7 +25,7 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
   if (!item) return null;
 
   const backgroundColor = isOutlier === 'high'
-    ? '#e6f9ed' // light green
+    ? useThemeColor('background')// light green
     : isOutlier === 'low'
       ? useThemeColor('background') // light red possibly?
       : useThemeColor('background');

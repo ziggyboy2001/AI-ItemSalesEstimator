@@ -1,0 +1,71 @@
+# Supabase Integration Plan for AI-ItemSalesEstimator
+
+## 1. Database Schema
+
+### A. searches
+- id: uuid (pk)
+- user_id: uuid (fk to users)
+- query: text
+- image_url: text (optional)
+- ai_keywords: text
+- ai_category_id: text
+- ai_aspects: jsonb
+- ai_excluded: text
+- results_count: int
+- created_at: timestamptz
+
+### B. saved_items
+- id: uuid (pk)
+- user_id: uuid (fk to users)
+- ebay_item_id: text
+- title: text
+- image_url: text
+- sale_price: numeric
+- shipping_price: numeric/text
+- date_sold: text
+- condition: text
+- buying_format: text
+- link: text
+- user_notes: text (optional)
+- saved_at: timestamptz
+
+### C. user_settings (optional)
+- user_id: uuid (pk/fk to users)
+- default_filters: jsonb
+
+---
+
+## 2. Features to Implement
+
+- [ ] Integrate Supabase client into Expo app
+- [ ] Create tables above in Supabase dashboard
+- [ ] Store each user search in `searches` table
+- [ ] Allow users to save/bookmark items to `saved_items`
+- [ ] (Optional) Store user settings/preferences
+- [ ] Add UI for viewing search history and saved items
+- [ ] Add UI for user notes/tags on saved items
+- [ ] (Optional) Store uploaded images in Supabase Storage
+
+---
+
+## 3. Authentication
+
+- [ ] Use Supabase Auth for user management
+- [ ] For now, use email/password or anonymous login
+- [ ] Plan to add OAuth (Google, Apple, etc.) in the near future
+  - Need to set up Apple/Google developer accounts first
+  - Update app to support OAuth login flows
+
+---
+
+## 4. Next Steps
+
+1. Create tables in Supabase dashboard (see schema above)
+2. Integrate Supabase JS client in Expo app
+3. Implement search and save logic using Supabase
+4. Add UI for user data (history, saved items)
+5. Plan OAuth integration for future
+
+---
+
+**This file is a living checklist. Update as you go!** 

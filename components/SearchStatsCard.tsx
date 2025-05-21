@@ -1,10 +1,10 @@
-import React from 'react';
-import { useState } from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Text, Platform, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { ProgressBarAndroid } from 'react-native';
 import { DollarSign, TrendingUp, Clock, Award, ThumbsUp, Users } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useThemeColor } from '@/constants/useThemeColor';
+import { supabase } from '@/services/supabaseClient';
 
 //test comment
 
@@ -20,6 +20,10 @@ interface SearchStatsCardProps {
     match_quality: number; // 0-100 (percent)
     unique_sellers?: number;
     market_activity?: string;
+    itemId?: string;
+    title?: string;
+    image?: string;
+    url?: string;
   };
   purchasePrice?: number;
 }
@@ -37,12 +41,74 @@ function ProgressBar({ progress, color }: { progress: number; color: string }) {
   return <ProgressBarAndroid styleAttr="Horizontal" indeterminate={false} progress={progress} color={color} style={{ height: 8, borderRadius: 4, marginVertical: 2 }} />;
 }
 
+function isNonEmptyString(val: unknown): val is string {
+  return typeof val === 'string' && val.trim() !== '';
+}
+
 export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCardProps) {
+  const [locked, setLocked] = useState(false);
+  const [haulId, setHaulId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id ?? null));
+  }, []);
+  useEffect(() => {
+    const fetchHaul = async () => {
+      if (!userId) return;
+      const { data: hauls } = await supabase
+        .from('hauls')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('finished', false)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (hauls && hauls[0]) setHaulId(hauls[0].id);
+      else setHaulId(null);
+    };
+    if (userId) fetchHaul();
+  }, [userId]);
+  const handleLock = async () => {
+    // Ensure submittedPrice is set from inputValue if not already
+    let priceToUse = submittedPrice;
+    if (priceToUse === undefined) {
+      const parsed = parseFloat(inputValue);
+      if (!isNaN(parsed)) {
+        setSubmittedPrice(parsed);
+        priceToUse = parsed;
+      } else {
+        Alert.alert('Error', 'Please enter a valid purchase price before locking to haul.');
+        return;
+      }
+    }
+    if (!userId) return;
+    let currentHaulId = haulId;
+    if (!currentHaulId) {
+      // Create a new haul
+      const { data, error } = await supabase.from('hauls').insert({ user_id: userId, name: `Haul ${new Date().toLocaleDateString()}` }).select();
+      if (data && data[0]) currentHaulId = data[0].id;
+    }
+    if (!currentHaulId) return;
+    // Add item to haul_items
+    console.log('LOCK TO HAUL: priceToUse', priceToUse);
+    const margin = stats && priceToUse !== undefined ? (Number(stats.average_price) - Number(priceToUse)) : 0;
+    await supabase.from('haul_items').insert({
+      haul_id: currentHaulId,
+      ebay_item_id: stats?.itemId || '',
+      title: stats?.title || '',
+      image_url: stats?.image || '',
+      sale_price: stats?.average_price || 0,
+      purchase_price: priceToUse !== undefined ? priceToUse : 0,
+      margin,
+      link: stats?.url || '',
+      locked: true,
+    });
+    setLocked(true);
+  };
   if (!stats) return null;
 
-  const profit = purchasePrice ? stats.average_price - purchasePrice : null;
-  const margin = purchasePrice ? (profit! / purchasePrice) : null;
-  const profitColor = profit == null ? '#333' : profit > 0 ? '#2ecc40' : '#ff4136';
+  // Local state for input and submitted price
+  const [inputValue, setInputValue] = useState(purchasePrice ? purchasePrice.toString() : '');
+  const [submittedPrice, setSubmittedPrice] = useState<number | undefined>(purchasePrice);
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
@@ -51,8 +117,28 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
   const cardTint = useThemeColor('tint');
   const cardSuccess = useThemeColor('success');
   const cardError = useThemeColor('error');
+  const cardWarning = useThemeColor('warning');
 
   const formatPrice = (price: number) => `$${price.toFixed(2)}`;
+
+  // Margin/Profit Row
+  const showMargin = submittedPrice != null && stats.average_price > 0;
+  let fill = 0;
+  let barColor = cardSuccess;
+  let profit = 0;
+  let margin = 0;
+  if (showMargin) {
+    profit = stats.average_price - submittedPrice!;
+    margin = (profit / submittedPrice!) * 100;
+    fill = Math.min(1, submittedPrice! / stats.average_price);
+    if (submittedPrice! > stats.average_price) {
+      barColor = cardError;
+    } else if (fill >= 0.8) {
+      barColor = cardWarning;
+    } else {
+      barColor = cardSuccess;
+    }
+  }
 
   return (
     <Animated.View 
@@ -62,6 +148,53 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
       <View style={styles.header}>
         <Text style={[styles.title, { color: cardText }]}>Market Snapshot</Text>
       </View>
+      {/* Purchase Price Input */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+        <TextInput
+          style={{
+            flex: 1,
+            height: 40,
+            borderColor: cardSubtle,
+            borderWidth: 1,
+            borderRadius: 8,
+            paddingHorizontal: 12,
+            color: cardText,
+            backgroundColor,
+            fontSize: 16,
+            marginRight: 8,
+          }}
+          placeholder="Enter your purchase price"
+          placeholderTextColor={cardSubtle}
+          keyboardType="numeric"
+          value={inputValue}
+          onChangeText={setInputValue}
+        />
+        <TouchableOpacity
+          style={{
+            backgroundColor: cardTint,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 8,
+          }}
+          onPress={() => {
+            const val = parseFloat(inputValue);
+            if (!isNaN(val)) setSubmittedPrice(val);
+          }}
+        >
+          <Text style={{ color: backgroundColor, fontWeight: 'bold' }}>Submit</Text>
+        </TouchableOpacity>
+      </View>
+
+      {showMargin && !locked && (
+        <TouchableOpacity style={{ marginBottom: 8, backgroundColor: cardTint, borderRadius: 8, padding: 12, alignItems: 'center' }} onPress={handleLock}>
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Lock to Haul</Text>
+        </TouchableOpacity>
+      )}
+      {locked && (
+        <View style={{ marginBottom: 8, backgroundColor: backgroundColor, borderRadius: 8, padding: 12, alignItems: 'center' }}>
+          <Text style={{ color: '#2ecc40', fontWeight: 'bold' }}>Locked to Haul!</Text>
+        </View>
+      )}
 
       <View style={styles.statsGrid}>
         <View style={styles.statItem}>
@@ -146,12 +279,12 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
         )} */}
       </View>
 
-      <View style={styles.scoreRow}>
+      {/* <View style={styles.scoreRow}>
         <Award size={18} color={cardSuccess} />
         <Text style={[styles.scoreLabel, { color: cardText }]}>Resaleability</Text>
         <Text style={[styles.scoreValue, { color: cardSuccess }]}>{stats.resaleability_score}</Text>
       </View>
-      <ProgressBar progress={stats.resaleability_score / 100} color="#2ecc40" />
+      <ProgressBar progress={stats.resaleability_score / 100} color="#2ecc40" /> */}
 
       {/* <View style={styles.scoreRow}>
         <ThumbsUp size={18} color={cardTint} />
@@ -161,21 +294,21 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
       {/* <ProgressBar progress={stats.match_quality / 100} color="#0074d9" /> */}
 
       {/* Margin/Profit Row */}
-      {margin !== null && (
+      {showMargin && (
         <View style={{ marginTop: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <DollarSign size={16} color={profitColor} style={{ marginRight: 4 }} />
+              <DollarSign size={16} color={barColor} style={{ marginRight: 4 }} />
               <Text style={[styles.scoreLabel, { color: cardText, fontSize: 14, marginLeft: 0, fontWeight: 'bold' }]}>Your Margin</Text>
             </View>
-            <Text style={[styles.scoreValue, { color: profitColor, fontSize: 14 }]}>{margin > 0 ? '+' : ''}{margin.toFixed(1)}%</Text>
+            <Text style={[styles.scoreValue, { color: barColor, fontSize: 14 }]}>{margin > 0 ? '+' : ''}{margin.toFixed(1)}%</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <ProgressBar progress={Math.max(0, Math.min(1, margin))} color={profitColor} />
+              <ProgressBar progress={fill} color={barColor} />
             </View>
             <View style={{
-              backgroundColor: profitColor,
+              backgroundColor: barColor,
               borderRadius: 12,
               paddingHorizontal: 12,
               paddingVertical: 4,
@@ -184,7 +317,7 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
               justifyContent: 'center',
             }}>
               <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>
-                {(profit ?? 0) > 0 ? '$' : ''}{(profit ?? 0).toFixed(2)}
+                {profit > 0 ? '+' : ''}{formatPrice(profit)}
               </Text>
             </View>
           </View>
