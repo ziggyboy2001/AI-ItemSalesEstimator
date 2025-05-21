@@ -1,9 +1,7 @@
-import Constants from 'expo-constants';
 import type { EbayCompletedRequest } from '@/services/ebayCompletedApi';
+import { OPENAI_API_KEY } from '@env';
 
-// Uses the OpenAI API key from Expo config extra (set in app.config.js or app.json)
-const OPENAI_API_KEY = Constants.expoConfig?.extra?.OPENAI_API_KEY;
-console.log('OPENAI_API_KEY:', OPENAI_API_KEY);
+// const OPENAI_API_KEY = Constants.expoConfig?.extra?.OPENAI_API_KEY;
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 /**
