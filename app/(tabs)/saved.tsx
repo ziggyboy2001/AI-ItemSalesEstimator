@@ -126,8 +126,8 @@ export default function HaulScreen() {
           <Text style={{ color: textColor, fontSize: 16, marginBottom: 2 }}>Total Items: {items.length}</Text>
           <Text style={{ color: textColor, fontSize: 16, marginBottom: 2 }}>Total Spent: ${totalSpent.toFixed(2)}</Text>
           <Text style={{ color: textColor, fontSize: 16, marginBottom: 2 }}>Expected Sales: ${totalExpected.toFixed(2)}</Text>
-          <Text style={{ color: successColor, fontSize: 16, fontWeight: 'bold', marginBottom: 2 }}>Expected Profit: ${totalProfit.toFixed(2)}</Text>
-          <Text style={{ color: textColor, fontSize: 16, marginBottom: 8 }}>Average Margin: {avgMargin.toFixed(2)}</Text>
+          <Text style={{ color: textColor, fontSize: 16, marginBottom: 2 }}>Expected Profit: <Text style={{ color: successColor, fontWeight: 'bold', }}>${totalProfit.toFixed(2)}</Text></Text>
+          <Text style={{ color: textColor, fontSize: 16, marginBottom: 8 }}>Average Margin: ${avgMargin.toFixed(2)}</Text>
         </View>
         <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
           <View>
@@ -141,10 +141,17 @@ export default function HaulScreen() {
                 innerRadius={50}
                 innerCircleColor={backgroundColor}
                 centerLabelComponent={() => (
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>Profit</Text>
-                    <Text style={{ color: textColor, fontSize: 14 }}>${totalProfit.toFixed(2)}</Text>
-                  </View>
+                  totalProfit > 0 ? (
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>Profit</Text>
+                      <Text style={{ color: textColor, fontSize: 14 }}>${totalProfit.toFixed(2)}</Text>
+                    </View>
+                  ) : (
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>Profit</Text>
+                      <Text style={{ color: errorColor, fontSize: 14 }}>LOSS</Text>
+                    </View>
+                  )
                 )}
                 strokeColor={backgroundColor}
                 strokeWidth={1}
@@ -157,9 +164,7 @@ export default function HaulScreen() {
           </View>
         </View>
       </View>
-      <TouchableOpacity style={{ marginTop: 8, backgroundColor: backgroundColor, borderColor: btnBorderColor, borderWidth: 1, borderRadius: 8, padding: 16, alignItems: 'center' }} onPress={handleFinishHaul}>
-        <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>Finish Haul</Text>
-      </TouchableOpacity>
+
       <View style={{ marginTop: 16, marginBottom: 8 }}>
         <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 18, marginBottom: 8 }}>Items in Haul</Text>
       </View>
@@ -167,7 +172,7 @@ export default function HaulScreen() {
   );
 
   if (loading) {
-    return <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}><ActivityIndicator size="large" color={tintColor} /></SafeAreaView>;
+    return <SafeAreaView style={[styles.loadingContainer, { paddingTop: insets.top, backgroundColor }]}><ActivityIndicator size="large" color={tintColor} /></SafeAreaView>;
   }
 
   if (!haul) {
@@ -176,7 +181,7 @@ export default function HaulScreen() {
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
           <Text style={{ color: textColor, fontSize: 20, marginBottom: 16 }}>No open haul</Text>
           <TouchableOpacity style={{ backgroundColor: tintColor, borderRadius: 8, padding: 16 }} onPress={handleStartNewHaul}>
-            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Start New Haul</Text>
+            <Text style={{ color: textColor, fontWeight: 'bold' }}>Start New Haul</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -204,11 +209,11 @@ export default function HaulScreen() {
                     <Image source={{ uri: item.image_url }} style={styles.itemImage} resizeMode="cover" />
                   ) : (
                     <View style={[styles.itemImage, { justifyContent: 'center', alignItems: 'center', backgroundColor: cardColor }]}> 
-                      <PlusCircle size={32} color={tintColor} />
+                      <PlusCircle size={28} color={tintColor} />
                     </View>
                   )}
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>{item.title}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>{item.title.length > 20 ? `${item.title.slice(0, 20)}...` : item.title}</Text>
                     <Text style={{ color: textColor, fontSize: 14 }}>Expected Sale: ${Number(item.sale_price).toFixed(2)}</Text>
                     <Text style={{ color: textColor, fontSize: 14 }}>Purchase Price: ${Number(item.purchase_price).toFixed(2)}</Text>
                     <Text style={{ color: margin >= 0 ? tintColor : errorColor, fontWeight: 'bold', fontSize: 14 }}>Margin: ${margin.toFixed(2)}</Text>
@@ -222,12 +227,16 @@ export default function HaulScreen() {
           }}
         />
       )}
+       <TouchableOpacity style={{ marginTop: 8, marginHorizontal: 16, backgroundColor: backgroundColor, borderColor: btnBorderColor, borderWidth: 1, borderRadius: 8, padding: 16, alignItems: 'center' }} onPress={handleFinishHaul}>
+        <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>Finish Haul</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   itemCard: { borderRadius: 12, padding: 12, marginBottom: 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   itemImage: { width: 64, height: 64, borderRadius: 8, backgroundColor: '#eee' },
 });

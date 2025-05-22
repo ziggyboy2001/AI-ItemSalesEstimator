@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, Image, TouchableOpacity } from 'react-native';
 import { supabase } from '../services/supabaseClient';
 import { useThemeColor } from '@/constants/useThemeColor';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
 
@@ -16,7 +19,14 @@ export default function AuthScreen() {
   const error = useThemeColor('error');
   const border = useThemeColor('tabIconDefault');
 
+  const passwordsMatch = !isSignUp || password === confirmPassword;
+
   const handleAuth = async () => {
+    if (isSignUp && !passwordsMatch) {
+      Alert.alert('Hold up!', 'These passwords do not match');
+      return;
+    }
+    
     setLoading(true);
     try {
       let result;
@@ -40,6 +50,10 @@ export default function AuthScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
+      <Image 
+        source={require('@/assets/images/bidPeekLogoText.png')} 
+        style={{ width: 200, height: 200, resizeMode: 'contain' }} 
+      />
       <Text style={[styles.title, { color: text }]}>{isSignUp ? 'Sign Up' : 'Sign In'}</Text>
       <TextInput
         style={[styles.input, { color: text, borderColor: border }]}
@@ -50,14 +64,43 @@ export default function AuthScreen() {
         value={email}
         onChangeText={setEmail}
       />
-      <TextInput
-        style={[styles.input, { color: text, borderColor: border }]}
-        placeholder="Password"
-        placeholderTextColor={border}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={[
+            styles.input,
+            { color: text, borderColor: border },
+            styles.passwordInput
+          ]}
+          placeholder="Password"
+          placeholderTextColor={border}
+          secureTextEntry={!showPassword}
+          value={password}
+          onChangeText={setPassword}
+        />
+        <TouchableOpacity 
+          style={styles.eyeIcon}
+          onPress={() => setShowPassword(!showPassword)}
+        >
+          <Ionicons 
+            name={showPassword ? "eye-off" : "eye"} 
+            size={24} 
+            color={border} 
+          />
+        </TouchableOpacity>
+      </View>
+      {isSignUp && (
+        <TextInput
+          style={[
+            styles.input,
+            { color: text, borderColor: passwordsMatch ? border : error }
+          ]}
+          placeholder="Confirm Password"
+          placeholderTextColor={border}
+          secureTextEntry={!showPassword}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+        />
+      )}
       <Button
         color={tint}
         title={loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
@@ -66,7 +109,10 @@ export default function AuthScreen() {
       />
       <Text
         style={[styles.toggle, { color: tint }]}
-        onPress={() => setIsSignUp((prev) => !prev)}
+        onPress={() => {
+          setIsSignUp((prev) => !prev);
+          setConfirmPassword('');
+        }}
       >
         {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
       </Text>
@@ -95,8 +141,20 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 16,
   },
+  passwordContainer: {
+    width: '100%',
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  eyeIcon: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+  },
   toggle: {
     marginTop: 16,
     textDecorationLine: 'underline',
   },
-}); 
+});

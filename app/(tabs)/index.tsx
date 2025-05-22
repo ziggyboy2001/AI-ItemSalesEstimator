@@ -399,7 +399,11 @@ export default function SearchScreen() {
               <>
                 {stats && (
                   <>
-                    <SearchStatsCard stats={stats} purchasePrice={parseFloat(purchasePrice) || undefined} />
+                    <SearchStatsCard 
+                      stats={stats} 
+                      purchasePrice={parseFloat(purchasePrice) || undefined} 
+                      searchTitle={searchQuery} 
+                    />
                   </>
                 )}
               </>

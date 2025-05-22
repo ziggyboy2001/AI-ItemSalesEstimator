@@ -26,6 +26,7 @@ interface SearchStatsCardProps {
     url?: string;
   };
   purchasePrice?: number;
+  searchTitle?: string;
 }
 
 // Cross-platform ProgressBar
@@ -45,7 +46,7 @@ function isNonEmptyString(val: unknown): val is string {
   return typeof val === 'string' && val.trim() !== '';
 }
 
-export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCardProps) {
+export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: SearchStatsCardProps) {
   const [locked, setLocked] = useState(false);
   const [haulId, setHaulId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -94,7 +95,7 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
     await supabase.from('haul_items').insert({
       haul_id: currentHaulId,
       ebay_item_id: stats?.itemId || '',
-      title: stats?.title || '',
+      title: searchTitle || stats?.title || '',
       image_url: stats?.image || '',
       sale_price: stats?.average_price || 0,
       purchase_price: priceToUse !== undefined ? priceToUse : 0,
@@ -187,7 +188,7 @@ export default function SearchStatsCard({ stats, purchasePrice }: SearchStatsCar
 
       {showMargin && !locked && (
         <TouchableOpacity style={{ marginBottom: 8, backgroundColor: cardTint, borderRadius: 8, padding: 12, alignItems: 'center' }} onPress={handleLock}>
-          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Lock to Haul</Text>
+          <Text style={{ color: "#000000", fontWeight: 'bold' }}>Lock to Haul</Text>
         </TouchableOpacity>
       )}
       {locked && (

@@ -17,7 +17,7 @@ export async function identifyItemFromImage(base64Image: string): Promise<string
           },
           {
             type: 'text',
-            text: 'What is the main item in this image? Respond with a short, clear description suitable for searching online marketplaces.'
+            text: 'What is the main item in this image? Respond with a short, clear description suitable for searching online marketplaces. Fewest words possible, be sure to correctly identify the item, we are looking solely for the name of the item. do not include punctuation at the end of the name. Remember, this is being used by the user to search ebay for this item.'
           }
         ]
       }

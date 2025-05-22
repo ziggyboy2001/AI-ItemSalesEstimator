@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollView, Alert } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollView, Alert, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ChevronRight, Info, Moon, User, Trash2, Key, MoonStar, Bell } from 'lucide-react-native';
@@ -129,7 +129,10 @@ export default function SettingsScreen() {
         style={styles.header}
         entering={FadeInDown.delay(100).duration(400)}
       >
-        <Text style={[styles.title, { color: textColor }]}>Settings</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={[styles.title, { color: textColor }]}>Settings</Text>
+          <Image source={require('@/assets/images/iconVector.png')} style={{ width: 28, height: 28 }} />
+        </View>
       </Animated.View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 32 }}>

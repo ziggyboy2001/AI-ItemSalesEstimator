@@ -1,5 +1,5 @@
 const API_HOST = 'ebay-average-selling-price.p.rapidapi.com';
-const API_KEY = '68c253c15bmsh7204e3067c31eedp1c21fdjsnd17b98c8a878';
+const API_KEY = '10903221a1mshedd4a7be9ba548bp12f649jsn66278f1d8a80';
 
 export interface EbayCompletedRequest {
   keywords: string;
