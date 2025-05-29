@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, Alert, ActivityIndicator, Image, ScrollView, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, Alert, ActivityIndicator, Image, ScrollView, Dimensions, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, Layout, FadeOut } from 'react-native-reanimated';
@@ -8,6 +8,7 @@ import { useThemeColor } from '@/constants/useThemeColor';
 import { supabase } from '@/services/supabaseClient';
 import { useIsFocused } from '@react-navigation/native';
 import { PieChart as GiftedPieChart } from 'react-native-gifted-charts';
+import { HaulItemSkeleton, MetricCardSkeleton, SkeletonList } from '@/components/SkeletonLoader';
 
 export default function HaulScreen() {
   const insets = useSafeAreaInsets();
@@ -23,6 +24,7 @@ export default function HaulScreen() {
   const [haul, setHaul] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const isFocused = typeof useIsFocused === 'function' ? useIsFocused() : true;
 
@@ -30,37 +32,38 @@ export default function HaulScreen() {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id ?? null));
   }, []);
 
-  useEffect(() => {
-    const fetchHaul = async () => {
-      if (!userId) return;
-      setLoading(true);
-      // Get open haul
-      const { data: hauls, error: haulError } = await supabase
-        .from('hauls')
+  const fetchHaul = async () => {
+    if (!userId) return;
+    if (!refreshing) setLoading(true);
+    // Get open haul
+    const { data: hauls, error: haulError } = await supabase
+      .from('hauls')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('finished', false)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (haulError) {
+      if (!refreshing) setLoading(false);
+      return;
+    }
+    const openHaul = hauls && hauls[0];
+    setHaul(openHaul);
+    if (openHaul) {
+      // Get items for this haul
+      const { data: haulItems, error: itemsError } = await supabase
+        .from('haul_items')
         .select('*')
-        .eq('user_id', userId)
-        .eq('finished', false)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (haulError) {
-        setLoading(false);
-        return;
-      }
-      const openHaul = hauls && hauls[0];
-      setHaul(openHaul);
-      if (openHaul) {
-        // Get items for this haul
-        const { data: haulItems, error: itemsError } = await supabase
-          .from('haul_items')
-          .select('*')
-          .eq('haul_id', openHaul.id)
-          .order('added_at', { ascending: false });
-        setItems(haulItems || []);
-      } else {
-        setItems([]);
-      }
-      setLoading(false);
-    };
+        .eq('haul_id', openHaul.id)
+        .order('added_at', { ascending: false });
+      setItems(haulItems || []);
+    } else {
+      setItems([]);
+    }
+    if (!refreshing) setLoading(false);
+  };
+
+  useEffect(() => {
     if (userId && isFocused) fetchHaul();
   }, [userId, isFocused]);
 
@@ -114,6 +117,12 @@ export default function HaulScreen() {
         setItems(items => items.filter(i => i.id !== itemId));
       } }
     ]);
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchHaul();
+    setRefreshing(false);
   };
 
   // List header for summary and graphs
@@ -172,7 +181,27 @@ export default function HaulScreen() {
   );
 
   if (loading) {
-    return <SafeAreaView style={[styles.loadingContainer, { paddingTop: insets.top, backgroundColor }]}><ActivityIndicator size="large" color={tintColor} /></SafeAreaView>;
+    return (
+      <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}>
+        <View style={{ padding: 16 }}>
+          {/* Header skeleton */}
+          <View style={{ marginBottom: 20 }}>
+            <View style={{ width: 150, height: 22, backgroundColor: tintColor + '20', borderRadius: 4, marginBottom: 16 }} />
+            
+            {/* Metrics grid skeleton */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 }}>
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+              <MetricCardSkeleton />
+            </View>
+          </View>
+          
+          {/* Items list skeleton */}
+          <SkeletonList count={4} ItemSkeleton={HaulItemSkeleton} />
+        </View>
+      </SafeAreaView>
+    );
   }
 
   if (!haul) {
@@ -200,6 +229,14 @@ export default function HaulScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingBottom: 32 }}
           ListHeaderComponent={renderHeader}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[tintColor]}
+              tintColor={tintColor}
+            />
+          }
           renderItem={({ item }) => {
             const margin = (Number(item.sale_price) || 0) - (Number(item.purchase_price) || 0);
             return (
