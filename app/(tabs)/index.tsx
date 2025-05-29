@@ -84,9 +84,9 @@ function calculateStatsAndFlags(items: import('@/services/ebayCompletedApi').Eba
 
   // Market activity (simple string)
   let market_activity = '';
-  if (items.length > 30) market_activity = 'Very Active';
-  else if (items.length > 10) market_activity = 'Active';
-  else if (items.length > 0) market_activity = 'Low Activity';
+  if (items.length > 50) market_activity = 'High';
+  else if (items.length > 10) market_activity = 'Medium';
+  else if (items.length > 0) market_activity = 'Low';
 
   return {
     stats: {
@@ -167,20 +167,35 @@ export default function SearchScreen() {
       addRecentSearch(query);
       // Save to search history
       if (mappedResults.length > 0) {
-        addToHistory({
+        // Use the first result as representative of the search
+        const firstResult = mappedResults[0];
+        const historyData = {
           query,
-          title: mappedResults[0].title,
-          itemId: mappedResults[0].itemId,
-          image: mappedResults[0].image,
-          link: mappedResults[0].url,
-          price: mappedResults[0].price,
-        });
+          title: firstResult.title || query,
+          itemId: firstResult.itemId,
+          image: firstResult.image,
+          link: firstResult.url,
+          price: newStats?.average_price || firstResult.price,
+        };
+        
+        await addToHistory(historyData);
       } else {
-        addToHistory({ query });
+        // Still save the search even if no results
+        const historyData = { 
+          query,
+          title: query 
+        };
+        await addToHistory(historyData);
       }
     } catch (err) {
       setError('Failed to fetch results. Please try again.');
       console.error('Search error:', err);
+      // Save failed search attempt too
+      const historyData = { 
+        query,
+        title: query 
+      };
+      await addToHistory(historyData);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -348,11 +363,11 @@ export default function SearchScreen() {
             )}
           </View>
           <TouchableOpacity 
-            style={[styles.searchButton, { backgroundColor: tintColor, shadowColor: tintColor }]}
+            style={[styles.searchButton, { backgroundColor: backgroundColor, borderColor: tintColor, borderWidth: 1, shadowColor: tintColor }]}
             onPress={() => handleSearch()}
             disabled={!searchQuery.trim()}
           >
-            <Text style={styles.searchButtonText}>Search</Text>
+            <Text style={[styles.searchButtonText, { color: tintColor }]}>Search</Text>
           </TouchableOpacity>
         </Animated.View>
 

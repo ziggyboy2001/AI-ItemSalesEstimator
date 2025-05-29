@@ -2,25 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollView, Alert, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { ChevronRight, Info, Moon, User, Trash2, Key, MoonStar, Bell } from 'lucide-react-native';
+import { ChevronRight, Info, Moon, User, Trash2, Bell } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 
 import { useSavedItems } from '@/hooks/useSavedItems';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import { useThemeColor } from '@/constants/useThemeColor';
+import { useTheme } from '@/contexts/ThemeContext';
 import { supabase } from '@/services/supabaseClient';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
-  const [haulHistory, setHaulHistory] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   
   const { clearSavedItems } = useSavedItems();
   const { clearSearchHistory } = useSearchHistory();
   const { clearRecentSearches } = useRecentSearches();
+  const { isDarkMode, toggleDarkMode } = useTheme();
   const router = useRouter();
 
   // THEME COLORS
@@ -31,34 +31,42 @@ export default function SettingsScreen() {
   const tintColor = useThemeColor('tint');
   const errorColor = useThemeColor('error');
   const cardColor = useThemeColor('background');
-  const successColor = useThemeColor('success');
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id ?? null));
+    loadUserSettings();
   }, []);
 
-  useEffect(() => {
-    const fetchHauls = async () => {
-      if (!userId) return;
-      const { data: hauls, error } = await supabase
-        .from('hauls')
-        .select(`
-          *,
-          haul_items (
-            id,
-            purchase_price,
-            sale_price
-          )
-        `)
-        .eq('user_id', userId)
-        .eq('finished', true)
-        .order('finished_at', { ascending: false });
-      if (!error && hauls) {
-        setHaulHistory(hauls);
+  const loadUserSettings = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      setUserId(user.id);
+      
+      // Load notification preference
+      const { data: settings } = await supabase
+        .from('user_settings')
+        .select('notifications')
+        .eq('user_id', user.id)
+        .single();
+        
+      if (settings) {
+        setNotifications(settings.notifications || true);
       }
-    };
-    if (userId) fetchHauls();
-  }, [userId]);
+    }
+  };
+
+  const handleNotificationToggle = async (value: boolean) => {
+    setNotifications(value);
+    if (userId) {
+      await supabase
+        .from('user_settings')
+        .upsert({
+          user_id: userId,
+          notifications: value,
+          dark_mode: isDarkMode,
+          default_filters: {}
+        });
+    }
+  };
 
   const handleClearAllData = () => {
     Alert.alert(
@@ -158,15 +166,15 @@ export default function SettingsScreen() {
               icon: <Moon size={20} color={tintColor} />,
               title: 'Dark Mode',
               subtitle: 'Switch between light and dark theme',
-              value: darkMode,
-              onValueChange: setDarkMode
+              value: isDarkMode,
+              onValueChange: toggleDarkMode
             })}
             {renderToggleItem({
               icon: <Bell size={20} color={tintColor} />,
               title: 'Notifications',
               subtitle: 'Get alerts for price drops on saved items',
               value: notifications,
-              onValueChange: setNotifications,
+              onValueChange: handleNotificationToggle,
               isLast: true
             })}
           </View>
@@ -177,13 +185,7 @@ export default function SettingsScreen() {
               icon: <User size={20} color={tintColor} />,
               title: 'Account Settings',
               subtitle: 'Manage your profile and preferences',
-              action: () => Alert.alert('Account Settings', 'This feature is coming soon.')
-            })}
-            {renderSettingItem({
-              icon: <Key size={20} color={tintColor} />,
-              title: 'API Key',
-              subtitle: 'Manage your API credentials',
-              action: () => Alert.alert('API Settings', 'This feature is coming soon.'),
+              action: () => router.push('/account-settings'),
               isLast: true
             })}
           </View>
@@ -208,61 +210,6 @@ export default function SettingsScreen() {
               action: () => Alert.alert('About', 'eBay Resale Estimator\nVersion 1.0.0\n\nAn app to help you estimate resale value of items.'),
               isLast: true
             })}
-          </View>
-
-          {/* Haul History Section */}
-          <View style={{ margin: 16, padding: 16, borderRadius: 12, backgroundColor: cardColor }}>
-            <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 18, marginBottom: 8 }}>Haul History</Text>
-            {haulHistory.length === 0 ? (
-              <Text style={{ color: subtleText }}>No finished hauls yet.</Text>
-            ) : (
-              haulHistory.map(haul => {
-                // Calculate profit summary for each haul
-                const totalSpent = haul.haul_items?.reduce((sum: number, item: any) => sum + (Number(item.purchase_price) || 0), 0) || 0;
-                const totalRevenue = haul.haul_items?.reduce((sum: number, item: any) => sum + (Number(item.sale_price) || 0), 0) || 0;
-                const totalProfit = totalRevenue - totalSpent;
-                const itemCount = haul.haul_items?.length || 0;
-                
-                return (
-                  <TouchableOpacity 
-                    key={haul.id} 
-                    style={{ 
-                      marginBottom: 12, 
-                      padding: 12, 
-                      borderRadius: 8, 
-                      backgroundColor: backgroundColor,
-                      borderWidth: 1,
-                      borderColor: borderColor
-                    }} 
-                    onPress={() => router.push(`/haul/${haul.id}`)}
-                  >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>{haul.name}</Text>
-                        <Text style={{ color: subtleText, fontSize: 13, marginTop: 2 }}>
-                          Finished: {haul.finished_at ? new Date(haul.finished_at).toLocaleDateString() : ''}
-                        </Text>
-                        <Text style={{ color: subtleText, fontSize: 13 }}>
-                          {itemCount} item{itemCount !== 1 ? 's' : ''}
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ 
-                          color: totalProfit >= 0 ? successColor : errorColor, 
-                          fontWeight: 'bold', 
-                          fontSize: 16 
-                        }}>
-                          {totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)}
-                        </Text>
-                        <Text style={{ color: subtleText, fontSize: 12 }}>
-                          ${totalSpent.toFixed(2)} → ${totalRevenue.toFixed(2)}
-                        </Text>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
-            )}
           </View>
         </Animated.View>
 

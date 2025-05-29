@@ -172,7 +172,9 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
         />
         <TouchableOpacity
           style={{
-            backgroundColor: cardTint,
+            backgroundColor: backgroundColor, 
+            borderColor: cardTint,
+            borderWidth: 1,
             paddingHorizontal: 16,
             paddingVertical: 10,
             borderRadius: 8,
@@ -182,7 +184,7 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
             if (!isNaN(val)) setSubmittedPrice(val);
           }}
         >
-          <Text style={{ color: backgroundColor, fontWeight: 'bold' }}>Submit</Text>
+          <Text style={{ color: cardTint, fontWeight: 'bold' }}>Submit</Text>
         </TouchableOpacity>
       </View>
 
@@ -331,7 +333,6 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
 const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
-    padding: 16,
     marginBottom: 16,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, RefreshControl, Image } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, RefreshControl, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
@@ -14,16 +14,15 @@ import { useThemeColor } from '@/constants/useThemeColor';
 export default function HistoryScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
   
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { recentSearches, clearRecentSearches } = useRecentSearches();
-  const { searchHistory, clearSearchHistory, removeFromHistory, refreshFromSupabase } = useSearchHistory();
+  const { searchHistory, isLoading, clearSearchHistory, removeFromHistory, refreshFromSupabase } = useSearchHistory();
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
-  const cardColor = useThemeColor('background');
+  const cardColor = useThemeColor('text');
   const textColor = useThemeColor('text');
   const subtleText = useThemeColor('tabIconDefault');
   const borderColor = useThemeColor('tabIconDefault');
@@ -39,6 +38,10 @@ export default function HistoryScreen() {
 
   const handleViewItem = (item: any) => {
     const itemId = item.itemId || item.id;
+    if (!itemId) {
+      handleSearchPress(item.query);
+      return;
+    }
     router.push({
       pathname: `/item/${itemId}`,
       params: { data: JSON.stringify(item) }
@@ -46,8 +49,21 @@ export default function HistoryScreen() {
   };
 
   const handleClearAll = () => {
-    clearSearchHistory();
-    clearRecentSearches();
+    Alert.alert(
+      'Clear All History',
+      'This will delete all search history and recent searches. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear All', 
+          style: 'destructive',
+          onPress: () => {
+            clearSearchHistory();
+            clearRecentSearches();
+          }
+        }
+      ]
+    );
   };
 
   const toggleDeleteMode = () => {
@@ -59,12 +75,6 @@ export default function HistoryScreen() {
     await refreshFromSupabase();
     setRefreshing(false);
   };
-
-  React.useEffect(() => {
-    // Simulate initial loading
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
-  }, []);
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}> 
@@ -101,7 +111,7 @@ export default function HistoryScreen() {
         style={styles.content}
         entering={FadeInDown.delay(200).duration(400)}
       >
-        {loading ? (
+        {isLoading ? (
           <View style={{ padding: 16 }}>
             <SkeletonList count={8} ItemSkeleton={SearchHistoryItemSkeleton} />
           </View>
@@ -115,7 +125,7 @@ export default function HistoryScreen() {
                 layout={Layout.springify()}
               >
                 <TouchableOpacity
-                  style={[styles.historyItem, { backgroundColor: cardColor, shadowColor: borderColor }]}
+                  style={[styles.historyItem, { backgroundColor: cardColor + '40', shadowColor: borderColor }]}
                   onPress={() => handleViewItem(item)}
                 >
                   <View style={styles.historyItemContent}>
@@ -130,9 +140,16 @@ export default function HistoryScreen() {
                     </View>
                     <View style={styles.historyItemText}>
                       <Text style={[styles.historyItemQuery, { color: textColor }]}>{item.query}</Text>
-                      <Text style={[styles.historyItemTitle, { color: subtleText }]} numberOfLines={1}>
-                        {item.title}
-                      </Text>
+                      {item.title && (
+                        <Text style={[styles.historyItemTitle, { color: subtleText }]} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                      )}
+                      {item.price && (
+                        <Text style={[styles.historyItemTitle, { color: tintColor, fontWeight: '600' }]} numberOfLines={1}>
+                          ${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}
+                        </Text>
+                      )}
                       <Text style={[styles.historyItemTime, { color: subtleText }]}>
                         {new Date(item.timestamp).toLocaleString()}
                       </Text>
@@ -153,7 +170,12 @@ export default function HistoryScreen() {
             )}
             contentContainerStyle={styles.listContent}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              <RefreshControl 
+                refreshing={refreshing} 
+                onRefresh={onRefresh}
+                colors={[tintColor]}
+                tintColor={tintColor} 
+              />
             }
           />
         ) : (

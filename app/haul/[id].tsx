@@ -201,7 +201,7 @@ export default function HaulDetailsScreen() {
       entering={FadeInDown.duration(400)}
       layout={Layout.duration(300)}
     >
-      <Image source={{ uri: item.image_url }} style={styles.itemImage} />
+      {/* <Image source={{ uri: item.image_url }} style={styles.itemImage} /> */}
       <View style={styles.itemContent}>
         <Text style={[styles.itemTitle, { color: textColor }]} numberOfLines={2}>
           {item.title}
@@ -304,7 +304,6 @@ export default function HaulDetailsScreen() {
             'Profit Margin',
             `${profitMargin.toFixed(1)}%`,
             'ROI percentage',
-            profitMargin >= 0 ? successColor : errorColor
           )}
         </View>
 

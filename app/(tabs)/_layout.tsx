@@ -1,12 +1,12 @@
 import { Tabs } from 'expo-router';
-import { useColorScheme } from 'react-native';
 import { Search, History, Bookmark, Settings, ShoppingBag } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 
 import Colors from '@/constants/Colors';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { colorScheme } = useTheme();
 
   return (
     <Tabs

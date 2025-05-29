@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
 import { useThemeColor } from '@/constants/useThemeColor';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -18,6 +19,31 @@ import type { User } from '@supabase/supabase-js';
 
 // Keep the splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
+
+function AppContent({ user }: { user: User | null }) {
+  const backgroundColor = useThemeColor('background');
+
+  if (!user) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
+        <AuthScreen />
+        <StatusBar style="auto" />
+      </GestureHandlerRootView>
+    );
+  }
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
+        <Stack.Screen name="item/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="account-settings" options={{ presentation: 'modal', animation: 'slide_from_right' }} />
+      </Stack>
+      <StatusBar style="auto" />
+    </GestureHandlerRootView>
+  );
+}
 
 export default function RootLayout() {
   useFrameworkReady();
@@ -52,30 +78,21 @@ export default function RootLayout() {
     onLayoutRootView();
   }, [onLayoutRootView]);
 
-  // All hooks must be called before any return
-  const backgroundColor = useThemeColor('background');
-
   if (!fontsLoaded && !fontError) {
     return null;
   }
 
   if (!user) {
     return (
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
-        <AuthScreen />
-        <StatusBar style="auto" />
-      </GestureHandlerRootView>
+      <ThemeProvider>
+        <AppContent user={null} />
+      </ThemeProvider>
     );
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
-        <Stack.Screen name="item/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </GestureHandlerRootView>
+    <ThemeProvider>
+      <AppContent user={user} />
+    </ThemeProvider>
   );
 }
