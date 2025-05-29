@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollV
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ChevronRight, Info, Moon, User, Trash2, Key, MoonStar, Bell } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 
 import { useSavedItems } from '@/hooks/useSavedItems';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
@@ -20,6 +21,7 @@ export default function SettingsScreen() {
   const { clearSavedItems } = useSavedItems();
   const { clearSearchHistory } = useSearchHistory();
   const { clearRecentSearches } = useRecentSearches();
+  const router = useRouter();
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
@@ -29,6 +31,7 @@ export default function SettingsScreen() {
   const tintColor = useThemeColor('tint');
   const errorColor = useThemeColor('error');
   const cardColor = useThemeColor('background');
+  const successColor = useThemeColor('success');
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id ?? null));
@@ -37,13 +40,22 @@ export default function SettingsScreen() {
   useEffect(() => {
     const fetchHauls = async () => {
       if (!userId) return;
-      const { data } = await supabase
+      const { data: hauls, error } = await supabase
         .from('hauls')
-        .select('*')
+        .select(`
+          *,
+          haul_items (
+            id,
+            purchase_price,
+            sale_price
+          )
+        `)
         .eq('user_id', userId)
         .eq('finished', true)
         .order('finished_at', { ascending: false });
-      setHaulHistory(data || []);
+      if (!error && hauls) {
+        setHaulHistory(hauls);
+      }
     };
     if (userId) fetchHauls();
   }, [userId]);
@@ -201,13 +213,52 @@ export default function SettingsScreen() {
             {haulHistory.length === 0 ? (
               <Text style={{ color: subtleText }}>No finished hauls yet.</Text>
             ) : (
-              haulHistory.map(haul => (
-                <TouchableOpacity key={haul.id} style={{ marginBottom: 12 }} onPress={() => {/* TODO: View haul details */}}>
-                  <Text style={{ color: textColor, fontWeight: 'bold' }}>{haul.name}</Text>
-                  <Text style={{ color: subtleText, fontSize: 13 }}>Finished: {haul.finished_at ? new Date(haul.finished_at).toLocaleString() : ''}</Text>
-                  {/* TODO: Show profit summary for haul */}
-                </TouchableOpacity>
-              ))
+              haulHistory.map(haul => {
+                // Calculate profit summary for each haul
+                const totalSpent = haul.haul_items?.reduce((sum: number, item: any) => sum + (Number(item.purchase_price) || 0), 0) || 0;
+                const totalRevenue = haul.haul_items?.reduce((sum: number, item: any) => sum + (Number(item.sale_price) || 0), 0) || 0;
+                const totalProfit = totalRevenue - totalSpent;
+                const itemCount = haul.haul_items?.length || 0;
+                
+                return (
+                  <TouchableOpacity 
+                    key={haul.id} 
+                    style={{ 
+                      marginBottom: 12, 
+                      padding: 12, 
+                      borderRadius: 8, 
+                      backgroundColor: backgroundColor,
+                      borderWidth: 1,
+                      borderColor: borderColor
+                    }} 
+                    onPress={() => router.push(`/haul/${haul.id}`)}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: textColor, fontWeight: 'bold', fontSize: 16 }}>{haul.name}</Text>
+                        <Text style={{ color: subtleText, fontSize: 13, marginTop: 2 }}>
+                          Finished: {haul.finished_at ? new Date(haul.finished_at).toLocaleDateString() : ''}
+                        </Text>
+                        <Text style={{ color: subtleText, fontSize: 13 }}>
+                          {itemCount} item{itemCount !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ 
+                          color: totalProfit >= 0 ? successColor : errorColor, 
+                          fontWeight: 'bold', 
+                          fontSize: 16 
+                        }}>
+                          {totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)}
+                        </Text>
+                        <Text style={{ color: subtleText, fontSize: 12 }}>
+                          ${totalSpent.toFixed(2)} → ${totalRevenue.toFixed(2)}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
             )}
           </View>
         </Animated.View>

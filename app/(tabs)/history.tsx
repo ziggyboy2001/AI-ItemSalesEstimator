@@ -8,11 +8,13 @@ import { Clock, ArrowRight, Trash2, ShoppingBag } from 'lucide-react-native';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import EmptyState from '@/components/EmptyState';
+import { SearchHistoryItemSkeleton, SkeletonList } from '@/components/SkeletonLoader';
 import { useThemeColor } from '@/constants/useThemeColor';
 
 export default function HistoryScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -58,6 +60,12 @@ export default function HistoryScreen() {
     setRefreshing(false);
   };
 
+  React.useEffect(() => {
+    // Simulate initial loading
+    const timer = setTimeout(() => setLoading(false), 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top, backgroundColor }]}> 
       <Animated.View 
@@ -93,7 +101,11 @@ export default function HistoryScreen() {
         style={styles.content}
         entering={FadeInDown.delay(200).duration(400)}
       >
-        {searchHistory.length > 0 ? (
+        {loading ? (
+          <View style={{ padding: 16 }}>
+            <SkeletonList count={8} ItemSkeleton={SearchHistoryItemSkeleton} />
+          </View>
+        ) : searchHistory.length > 0 ? (
           <FlatList
             data={searchHistory}
             keyExtractor={(item) => item.id.toString()}

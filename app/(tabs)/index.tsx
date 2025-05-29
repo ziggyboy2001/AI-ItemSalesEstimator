@@ -15,6 +15,7 @@ import { useRecentSearches } from '@/hooks/useRecentSearches';
 import EmptyState from '@/components/EmptyState';
 import ItemCard from '@/components/ItemCard';
 import SearchStatsCard from '@/components/SearchStatsCard';
+import { SearchResultSkeleton, StatsCardSkeleton, SkeletonList } from '@/components/SkeletonLoader';
 import { calculateSearchStats } from '@/utils/calculateStats';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { identifyItemFromImage } from '@/utils/openaiVision';
@@ -387,9 +388,11 @@ export default function SearchScreen() {
             action={{ label: 'Try Again', onPress: () => handleSearch() }}
           />
         ) : isLoading && !isRefreshing ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={tintColor} />
-            <Text style={[styles.loadingText, { color: subtleText }]}>Searching eBay...</Text>
+          <View style={{ flex: 1, paddingTop: 20 }}>
+            {/* Stats Card Skeleton */}
+            <StatsCardSkeleton />
+            {/* Search Results Skeletons */}
+            <SkeletonList count={6} ItemSkeleton={SearchResultSkeleton} />
           </View>
         ) : results.length > 0 ? (
           <FlatList
