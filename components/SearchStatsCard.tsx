@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, Platform, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { ProgressBarAndroid } from 'react-native';
-import { DollarSign, TrendingUp, Clock, Award, ThumbsUp, Users } from 'lucide-react-native';
+import { DollarSign, TrendingUp, Clock, Award, ThumbsUp, Users, ChevronRight } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { supabase } from '@/services/supabaseClient';
@@ -24,9 +24,13 @@ interface SearchStatsCardProps {
     title?: string;
     image?: string;
     url?: string;
+    data_source?: string;
+    source?: string;
+    market_summary?: string;
   };
   purchasePrice?: number;
   searchTitle?: string;
+  onViewAnalysis?: () => void;
 }
 
 // Cross-platform ProgressBar
@@ -46,7 +50,7 @@ function isNonEmptyString(val: unknown): val is string {
   return typeof val === 'string' && val.trim() !== '';
 }
 
-export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: SearchStatsCardProps) {
+export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onViewAnalysis }: SearchStatsCardProps) {
   const [locked, setLocked] = useState(false);
   const [haulId, setHaulId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -148,6 +152,13 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
     >
       <View style={styles.header}>
         <Text style={[styles.title, { color: cardText }]}>Market Snapshot</Text>
+        {(stats.data_source || stats.source) && (
+          <View style={[styles.sourceBadge, { backgroundColor: stats.data_source === 'ai_web_search' ? cardTint + '20' : cardTint + '20' }]}>
+            <Text style={[styles.sourceText, { color: stats.data_source === 'ai_web_search' ? cardTint : cardTint }]}>
+              {stats.data_source === 'ai_web_search' ? 'Live Market Data' : 'Historical Sales Data'}
+            </Text>
+          </View>
+        )}
       </View>
       {/* Purchase Price Input */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -204,7 +215,9 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
           <DollarSign size={20} color={cardTint} />
           <View style={{ marginLeft: 8 }}>
             <Text style={[styles.statValue, { color: cardText }]}>{formatPrice(stats.average_price)}</Text>
-            <Text style={[styles.statLabel, { color: cardSubtle }]}>Avg. Price</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>
+              {stats.data_source === 'ai_web_search' ? 'Avg. Current' : 'Avg. Price'}
+            </Text>
           </View>
         </View>
         {/* <View style={styles.statItem}>
@@ -232,7 +245,9 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
           <Users size={20} color={cardTint} />
           <View style={{ marginLeft: 8 }}>
             <Text style={[styles.statValue, { color: cardText }]}>{stats.results}</Text>
-            <Text style={[styles.statLabel, { color: cardSubtle }]}>Results</Text>
+            <Text style={[styles.statLabel, { color: cardSubtle }]}>
+              {stats.data_source === 'ai_web_search' ? 'Listings' : 'Results'}
+            </Text>
           </View>
         </View>
         {stats.unique_sellers !== undefined && (
@@ -280,6 +295,33 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle }: S
             </View>
           </View>
         )} */}
+        {/* {(stats.data_source || stats.source) && (
+          <View style={[styles.sourceBadge, { backgroundColor: stats.data_source === 'ai_web_search' ? cardTint + '20' : cardTint + '20' }]}>
+            <Text style={[styles.sourceText, { color: stats.data_source === 'ai_web_search' ? cardTint : cardTint }]}>
+              {stats.data_source === 'ai_web_search' ? 'Live Market Data' : '📊 Historical Sales Data'}
+            </Text>
+          </View>
+        )} */}
+        
+        {stats.data_source === 'ai_web_search' && (
+          <View style={[styles.aiNoteContainer, { backgroundColor: backgroundColor }]}>
+            <Text style={[styles.aiNoteText, { color: cardSubtle }]}>
+              💡 Showing current listing prices from multiple sources - not historical sales
+            </Text>
+          </View>
+        )}
+        
+        {stats.data_source === 'ai_web_search' && stats.market_summary && onViewAnalysis && (
+          <TouchableOpacity 
+            style={[styles.analysisButton]} 
+            onPress={onViewAnalysis}
+          >
+            <Text style={[styles.analysisButtonText, { color: cardTint }]}>
+              📊 View Market Analysis
+            </Text>
+            <ChevronRight size={20} color={cardTint} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* <View style={styles.scoreRow}>
@@ -334,13 +376,16 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 12,
     marginBottom: 16,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    // shadowOffset: { width: 0, height: 1 },
+    // shadowOpacity: 0.2,
+    // shadowRadius: 4,
     elevation: 2,
   },
   header: {
     marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   title: {
     fontFamily: 'Inter_600SemiBold',
@@ -411,5 +456,40 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     fontSize: 13,
     marginLeft: 6,
+  },
+  sourceBadge: {
+    padding: 4,
+    borderRadius: 8,
+    marginVertical: 12,
+    height: 24,
+  },
+  sourceText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    marginTop: 'auto',
+    marginBottom: 'auto',
+  },
+  aiNoteContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    borderRadius: 4,
+    marginTop: 8,
+    backgroundColor: '#f0f0f0',
+  },
+  aiNoteText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+  },
+  analysisButton: {
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  analysisButtonText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    marginRight: 8,
   },
 }); 

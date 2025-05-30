@@ -1,16 +1,18 @@
 import React from 'react';
 import { useState, useCallback } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, TextInput, FlatList, ActivityIndicator, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Modal, Button, Alert } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, TextInput, FlatList, ActivityIndicator, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Modal, Button, Alert, Linking, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RefreshControl } from 'react-native-gesture-handler';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
-import { Search as SearchIcon, X } from 'lucide-react-native';
+import { Search as SearchIcon, X, Camera, ImageIcon } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { differenceInDays } from 'date-fns';
+import Markdown from 'react-native-markdown-display';
 
 import { inferEbayRequestFields } from '@/utils/gptEbayRequestInference';
 import { fetchEbayCompletedItems } from '@/services/ebayCompletedApi';
+import { progressiveSearch } from '@/utils/searchStrategies';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
 import EmptyState from '@/components/EmptyState';
 import ItemCard from '@/components/ItemCard';
@@ -20,6 +22,8 @@ import { calculateSearchStats } from '@/utils/calculateStats';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { identifyItemFromImage } from '@/utils/openaiVision';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
+import { searchWebWithOpenAI, searchWebWithChatGPT, simpleAIWebSearch, searchByImage } from '@/services/aiWebSearch';
+import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
 
 interface SearchResult {
   itemId: string;
@@ -32,6 +36,10 @@ interface SearchResult {
   url?: string;
   shipping?: number | string;
   buyingFormat?: string;
+  source: string;
+  sourceWebsite?: string;
+  stats?: any;
+  items?: import('@/services/ebayCompletedApi').EbayCompletedItem[];
   [key: string]: any;
 }
 
@@ -107,7 +115,7 @@ function calculateStatsAndFlags(items: import('@/services/ebayCompletedApi').Eba
 }
 
 // Add mapping function
-function mapEbayItemToSearchResult(item: import('@/services/ebayCompletedApi').EbayCompletedItem, query: string): SearchResult {
+function mapEbayItemToSearchResult(item: any, query: string): SearchResult {
   return {
     itemId: item.item_id,
     title: item.title,
@@ -119,23 +127,44 @@ function mapEbayItemToSearchResult(item: import('@/services/ebayCompletedApi').E
     url: item.link,
     shipping: item.shipping_price,
     buyingFormat: item.buying_format,
-    // ...add any other fields as needed
+    source: item.source_website || 'ebay',
+    sourceWebsite: item.source_website,
+    items: [item],
   };
 }
 
 export default function SearchScreen() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null); // Base64 image data
+  const [isImageSearch, setIsImageSearch] = useState(false);
+  
+  // Separate state for each tab
+  const [soldResults, setSoldResults] = useState<SearchResult[]>([]);
+  const [soldStats, setSoldStats] = useState<any>(null);
+  const [soldItemFlags, setSoldItemFlags] = useState<any[]>([]);
+  const [soldError, setSoldError] = useState('');
+  
+  const [listingsResults, setListingsResults] = useState<SearchResult[]>([]);
+  const [listingsStats, setListingsStats] = useState<any>(null);
+  const [listingsItemFlags, setListingsItemFlags] = useState<any[]>([]);
+  const [listingsError, setListingsError] = useState('');
+  
+  // Shared state
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState('');
   const [aiModalVisible, setAiModalVisible] = useState(false);
   const [aiDescription, setAiDescription] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
-  const [stats, setStats] = useState<any>(null);
-  const [itemFlags, setItemFlags] = useState<any[]>([]);
   const [purchasePrice, setPurchasePrice] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'sold' | 'listings'>('sold');
+  const [marketAnalysisModalVisible, setMarketAnalysisModalVisible] = useState(false);
+
+  // Computed values based on active tab
+  const results = activeTab === 'sold' ? soldResults : listingsResults;
+  const stats = activeTab === 'sold' ? soldStats : listingsStats;
+  const itemFlags = activeTab === 'sold' ? soldItemFlags : listingsItemFlags;
+  const error = activeTab === 'sold' ? soldError : listingsError;
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -151,23 +180,264 @@ export default function SearchScreen() {
   const errorColor = useThemeColor('error');
   const cardColor = useThemeColor('background');
 
-  const handleSearch = useCallback(async (query = searchQuery) => {
+  const handleTestAISearch = useCallback(async (query = searchQuery) => {
     if (!query.trim()) return;
     setIsLoading(true);
-    setError('');
+    setListingsError('');
+    try {
+      console.log('Testing AI Web Search directly for:', query);
+      console.log('Trying new OpenAI Responses API with web search...');
+      let aiResult = await searchWebWithOpenAI(query);
+      
+      // Fallback to ChatGPT-style search if Responses API fails
+      if (!aiResult.success) {
+        console.log('OpenAI Responses API failed, trying ChatGPT-style search...');
+        aiResult = await searchWebWithChatGPT(query);
+      }
+      
+      // Fallback to old method if new one fails
+      if (!aiResult.success) {
+        console.log('OpenAI web search failed, trying fallback method...');
+        aiResult = await simpleAIWebSearch(query);
+      }
+      
+      console.log('=== AI SEARCH RESULT RECEIVED ===');
+      console.log('AI Result Success:', aiResult.success);
+      console.log('AI Result Products:', aiResult.products);
+      console.log('AI Result Summary:', aiResult.summary);
+      console.log('=== END AI SEARCH RESULT ===');
+      
+      if (!aiResult.success) {
+        setListingsError(aiResult.summary || 'AI web search failed');
+        setListingsResults([]);
+        setListingsStats(null);
+        setListingsItemFlags([]);
+        return;
+      }
+      
+      // Convert AI web search results to our expected format
+      const convertedItems = aiResult.products.map((product, index) => {
+        console.log(`=== CONVERTING PRODUCT ${index + 1} ===`);
+        console.log('Original Product:', JSON.stringify(product, null, 2));
+        
+        const converted = {
+          item_id: product.link || `ai-test-${Date.now()}-${Math.random()}`,
+          title: product.title,
+          sale_price: product.price || 0,
+          image_url: undefined, // Don't use AI search images as they're often missing/broken
+          condition: product.condition || 'Unknown',
+          date_sold: new Date().toISOString(),
+          link: product.link,
+          buying_format: 'Store Listing',
+          shipping_price: 0,
+          source_website: product.source, // Preserve the source website
+        };
+        
+        console.log('Converted Item:', JSON.stringify(converted, null, 2));
+        console.log('Source Website:', product.source);
+        console.log('=== END CONVERTING PRODUCT ===');
+        
+        return converted;
+      });
+      
+      console.log('=== ALL CONVERTED ITEMS ===');
+      console.log('Converted Items Count:', convertedItems.length);
+      console.log('All Converted Items:', JSON.stringify(convertedItems, null, 2));
+      console.log('=== END ALL CONVERTED ITEMS ===');
+      
+      const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, query));
+      
+      console.log('=== MAPPED RESULTS ===');
+      console.log('Mapped Results Count:', mappedResults.length);
+      console.log('Mapped Results:', JSON.stringify(mappedResults, null, 2));
+      console.log('=== END MAPPED RESULTS ===');
+      
+      // Create stats from AI web search results
+      const prices = aiResult.products.map(p => p.price).filter(p => p > 0);
+      const stats = {
+        average_price: prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0,
+        median_price: prices.length > 0 ? prices.sort((a, b) => a - b)[Math.floor(prices.length / 2)] : 0,
+        min_price: prices.length > 0 ? Math.min(...prices) : 0,
+        max_price: prices.length > 0 ? Math.max(...prices) : 0,
+        results: aiResult.products.length,
+        strategy_used: 'ai_web_search_test',
+        original_term: query,
+        source: 'AI Web Search (Test Mode)',
+        market_summary: aiResult.summary,
+        data_source: 'ai_web_search',
+        resaleability_score: 0, // Not applicable for AI search
+        match_quality: 0, // Not applicable for AI search
+        market_activity: aiResult.products.length > 10 ? 'High' : aiResult.products.length > 3 ? 'Medium' : 'Low',
+      };
+      
+      console.log('=== FINAL STATS ===');
+      console.log('Stats:', JSON.stringify(stats, null, 2));
+      console.log('=== END FINAL STATS ===');
+      
+      setListingsStats(stats);
+      setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
+      setListingsResults(mappedResults);
+      addRecentSearch(query);
+      
+      console.log('AI Web Search Test Results:', {
+        products: aiResult.products.length,
+        average_price: stats.average_price,
+        summary: aiResult.summary
+      });
+      
+    } catch (err) {
+      setListingsError('AI web search test failed. Check console for details.');
+      console.error('AI web search test error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [searchQuery, addRecentSearch]);
+
+  const handleAIImageSearch = useCallback(async (imageBase64: string) => {
+    setIsLoading(true);
+    setListingsError('');
+    try {
+      console.log('🖼️ Starting image-based search...');
+      
+      const aiResult = await searchByImage(imageBase64);
+      
+      console.log('=== IMAGE SEARCH RESULT RECEIVED ===');
+      console.log('AI Result Success:', aiResult.success);
+      console.log('AI Result Products:', aiResult.products);
+      console.log('AI Result Summary:', aiResult.summary);
+      console.log('=== END IMAGE SEARCH RESULT ===');
+      
+      if (!aiResult.success) {
+        setListingsError(aiResult.summary || 'Image search failed');
+        setListingsResults([]);
+        setListingsStats(null);
+        setListingsItemFlags([]);
+        return;
+      }
+      
+      // Convert AI image search results to our expected format
+      const convertedItems = aiResult.products.map((product, index) => {
+        const converted = {
+          item_id: product.link || `ai-image-${Date.now()}-${Math.random()}`,
+          title: product.title,
+          sale_price: product.price || 0,
+          image_url: undefined,
+          condition: product.condition || 'Unknown',
+          date_sold: new Date().toISOString(),
+          link: product.link,
+          buying_format: 'Store Listing',
+          shipping_price: 0,
+          source_website: product.source,
+        };
+        
+        return converted;
+      });
+      
+      const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, 'Image Search'));
+      
+      // Create stats from AI image search results
+      const prices = aiResult.products.map(p => p.price).filter(p => p > 0);
+      const stats = {
+        average_price: prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0,
+        median_price: prices.length > 0 ? prices.sort((a, b) => a - b)[Math.floor(prices.length / 2)] : 0,
+        min_price: prices.length > 0 ? Math.min(...prices) : 0,
+        max_price: prices.length > 0 ? Math.max(...prices) : 0,
+        results: aiResult.products.length,
+        strategy_used: 'ai_image_search',
+        original_term: 'Image Search',
+        source: 'AI Image Search',
+        market_summary: aiResult.summary,
+        data_source: 'ai_web_search',
+        resaleability_score: 0,
+        match_quality: 0,
+        market_activity: aiResult.products.length > 10 ? 'High' : aiResult.products.length > 3 ? 'Medium' : 'Low',
+      };
+      
+      setListingsStats(stats);
+      setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
+      setListingsResults(mappedResults);
+      
+      console.log('Image Search Results:', {
+        products: aiResult.products.length,
+        average_price: stats.average_price,
+        summary: aiResult.summary
+      });
+      
+    } catch (err) {
+      setListingsError('Image search failed. Check console for details.');
+      console.error('Image search error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const handleSearch = useCallback(async (query = searchQuery) => {
+    if (!query.trim() && !selectedImage) return;
+    setIsLoading(true);
+    
+    if (activeTab === 'listings') {
+      // AI Web Search for current listings
+      if (selectedImage && isImageSearch) {
+        // Image-based search
+        await handleAIImageSearch(selectedImage);
+      } else {
+        // Text-based search
+        await handleTestAISearch(query);
+      }
+      return;
+    }
+    
+    // eBay search for historical sales (existing functionality) - only text search
+    if (selectedImage && isImageSearch) {
+      // For eBay search, we'll first identify the item then search
+      try {
+        const description = await identifyItemFromImage(selectedImage);
+        if (description) {
+          setSearchQuery(description);
+          query = description;
+        }
+      } catch (err) {
+        console.error('Failed to identify item from image:', err);
+        setSoldError('Failed to identify item from image. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+    }
+    
+    setSoldError('');
     try {
       const ebayRequest = await inferEbayRequestFields(query);
       const data = await fetchEbayCompletedItems(ebayRequest);
-      const items = (data.items || []);
+      
+      if (!data.items || data.items.length === 0) {
+        setSoldError('No results found. Try different keywords or check spelling.');
+        setSoldResults([]);
+        setSoldStats(null);
+        setSoldItemFlags([]);
+        return;
+      }
+      
+      const items = data.items;
       const mappedResults = items.map(item => mapEbayItemToSearchResult(item, query));
-      const { stats: newStats, itemFlags: newItemFlags } = calculateStatsAndFlags(items);
-      setStats(newStats);
-      setItemFlags(newItemFlags);
-      setResults(mappedResults);
+      
+      // Calculate stats and flags for eBay results
+      const calculation = calculateStatsAndFlags(items);
+      const newStats = calculation.stats;
+      const newItemFlags = calculation.itemFlags;
+      
+      // Enhance stats with eBay source information
+      const enhancedStats = {
+        ...newStats,
+        data_source: 'ebay',
+      };
+      
+      setSoldStats(enhancedStats);
+      setSoldItemFlags(newItemFlags);
+      setSoldResults(mappedResults);
       addRecentSearch(query);
+      
       // Save to search history
       if (mappedResults.length > 0) {
-        // Use the first result as representative of the search
         const firstResult = mappedResults[0];
         const historyData = {
           query,
@@ -175,12 +445,11 @@ export default function SearchScreen() {
           itemId: firstResult.itemId,
           image: firstResult.image,
           link: firstResult.url,
-          price: newStats?.average_price || firstResult.price,
+          price: enhancedStats?.average_price || firstResult.price,
         };
         
         await addToHistory(historyData);
       } else {
-        // Still save the search even if no results
         const historyData = { 
           query,
           title: query 
@@ -188,9 +457,8 @@ export default function SearchScreen() {
         await addToHistory(historyData);
       }
     } catch (err) {
-      setError('Failed to fetch results. Please try again.');
+      setSoldError('Search failed. Please check your connection and try again.');
       console.error('Search error:', err);
-      // Save failed search attempt too
       const historyData = { 
         query,
         title: query 
@@ -200,7 +468,7 @@ export default function SearchScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [searchQuery, addRecentSearch, addToHistory]);
+  }, [searchQuery, selectedImage, isImageSearch, addRecentSearch, addToHistory, activeTab, handleTestAISearch, handleAIImageSearch]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -209,13 +477,43 @@ export default function SearchScreen() {
 
   const handleClearSearch = () => {
     setSearchQuery('');
-    setResults([]);
+    setSelectedImage(null);
+    setIsImageSearch(false);
+    if (activeTab === 'sold') {
+      setSoldResults([]);
+      setSoldStats(null);
+      setSoldItemFlags([]);
+      setSoldError('');
+    } else {
+      setListingsResults([]);
+      setListingsStats(null);
+      setListingsItemFlags([]);
+      setListingsError('');
+    }
+  };
+
+  const handleTabSwitch = (tab: 'sold' | 'listings') => {
+    setActiveTab(tab);
+    setSearchQuery(''); // Clear search query when switching tabs
+    setSelectedImage(null); // Clear image when switching tabs
+    setIsImageSearch(false); // Reset image search mode
+  };
+
+  const handleViewMarketAnalysis = () => {
+    setMarketAnalysisModalVisible(true);
   };
 
   const handleItemPress = (item: SearchResult) => {
+    // Add context flags to the item data
+    const itemWithContext = {
+      ...item,
+      isAIResult: stats?.data_source === 'ai_web_search',
+      sourceWebsite: item.sourceWebsite
+    };
+    
     router.push({
       pathname: '/item/[id]',
-      params: { id: item.itemId, data: JSON.stringify(item) }
+      params: { id: item.itemId, data: JSON.stringify(itemWithContext) }
     });
   };
 
@@ -227,11 +525,11 @@ export default function SearchScreen() {
   const handleIdentifyItem = async () => {
     try {
       Alert.alert(
-        'Identify Item',
-        'Take a photo or choose from gallery?',
+        'Search with Image',
+        'How would you like to search?',
         [
-          { text: 'Camera', onPress: () => pickImage('camera') },
-          { text: 'Gallery', onPress: () => pickImage('gallery') },
+          { text: 'Search Similar Items (AI)', onPress: () => pickImageForSearch() },
+          { text: 'Identify Item Only', onPress: () => pickImageForIdentify() },
           { text: 'Cancel', style: 'cancel' },
         ]
       );
@@ -240,19 +538,41 @@ export default function SearchScreen() {
     }
   };
 
-  const pickImage = async (source: 'camera' | 'gallery') => {
+  const pickImageForSearch = async () => {
+    Alert.alert(
+      'Select Image Source',
+      'Take a photo or choose from gallery?',
+      [
+        { text: 'Camera', onPress: () => pickImage('camera') },
+        { text: 'Gallery', onPress: () => pickImage('gallery') },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const pickImageForIdentify = async () => {
+    Alert.alert(
+      'Select Image Source',
+      'Take a photo or choose from gallery?',
+      [
+        { text: 'Camera', onPress: () => pickImageOld('camera') },
+        { text: 'Gallery', onPress: () => pickImageOld('gallery') },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const pickImageOld = async (source: 'camera' | 'gallery') => {
     try {
       let permissionResult;
       if (source === 'camera') {
         permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-        console.log('Camera permission:', permissionResult);
         if (!permissionResult.granted) {
           Alert.alert('Permission required', 'Camera permission is required to take a photo.');
           return;
         }
       } else {
         permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        console.log('Media library permission:', permissionResult);
         if (!permissionResult.granted) {
           Alert.alert('Permission required', 'Media library permission is required to select a photo.');
           return;
@@ -273,28 +593,18 @@ export default function SearchScreen() {
           quality: 0.8,
         });
       }
-      console.log('ImagePicker result:', result);
 
-      if (result.canceled) {
-        Alert.alert('Cancelled', 'No image was selected.');
+      if (result.canceled || !result.assets?.[0]?.base64) {
         return;
       }
 
-      if (!result.assets || !result.assets[0] || !result.assets[0].base64) {
-        Alert.alert('Error', 'No image data found.');
-        return;
-      }
-
+      // Show AI identification modal
       setAiLoading(true);
       setAiModalVisible(true);
       setAiError('');
       setAiDescription('');
       try {
         const description = await identifyItemFromImage(result.assets[0].base64);
-        console.log('AI description:', description);
-        if (!description) {
-          setAiError('AI did not return a description.');
-        }
         setAiDescription(description || '');
       } catch (err) {
         console.error('AI error:', err);
@@ -302,6 +612,59 @@ export default function SearchScreen() {
       } finally {
         setAiLoading(false);
       }
+      
+    } catch (err) {
+      console.error('pickImageOld error:', err);
+      Alert.alert('Error', 'Something went wrong while picking the image.');
+    }
+  };
+
+  const pickImage = async (source: 'camera' | 'gallery') => {
+    try {
+      let permissionResult;
+      if (source === 'camera') {
+        permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permissionResult.granted) {
+          Alert.alert('Permission required', 'Camera permission is required to take a photo.');
+          return;
+        }
+      } else {
+        permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permissionResult.granted) {
+          Alert.alert('Permission required', 'Media library permission is required to select a photo.');
+          return;
+        }
+      }
+
+      let result;
+      if (source === 'camera') {
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: 'images',
+          base64: true,
+          quality: 0.8,
+        });
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: 'images',
+          base64: true,
+          quality: 0.8,
+        });
+      }
+
+      if (result.canceled || !result.assets?.[0]?.base64) {
+        return;
+      }
+
+      // Set the image in the search bar for image search
+      setSelectedImage(result.assets[0].base64);
+      setIsImageSearch(true);
+      setSearchQuery(''); // Clear text query when image is selected
+      
+      // Auto-switch to listings tab for image search (only AI search supports image)
+      if (activeTab === 'sold') {
+        setActiveTab('listings');
+      }
+      
     } catch (err) {
       console.error('pickImage error:', err);
       Alert.alert('Error', 'Something went wrong while picking the image.');
@@ -312,6 +675,38 @@ export default function SearchScreen() {
     setSearchQuery(aiDescription);
     setAiModalVisible(false);
     await handleSearch(aiDescription);
+  };
+
+  const handleImageSearch = async () => {
+    try {
+      Alert.alert(
+        'Search by Image',
+        'Choose how to search with the image:',
+        [
+          { 
+            text: 'Google Shopping', 
+            onPress: () => {
+              if (aiDescription) {
+                const shoppingUrl = generateGoogleShoppingSearchURL(aiDescription);
+                Linking.openURL(shoppingUrl);
+              } else {
+                Alert.alert('Error', 'Please identify the item first to search Google Shopping');
+              }
+            }
+          },
+          { 
+            text: 'Google Lens', 
+            onPress: () => {
+              const lensUrl = generateGoogleLensURL();
+              Linking.openURL(lensUrl);
+            }
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    } catch (err) {
+      Alert.alert('Error', 'Failed to open image search');
+    }
   };
 
   // Add debug log for results before render
@@ -343,11 +738,69 @@ export default function SearchScreen() {
           entering={FadeInDown.delay(200).duration(400)}
           layout={Layout.springify()}
         >
+          {/* Tab Selection */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity 
+              style={[styles.tab, { 
+                backgroundColor: 'transparent',
+                borderColor: activeTab === 'sold' ? tintColor : subtleText,
+                borderWidth: 1
+              }]}
+              onPress={() => handleTabSwitch('sold')}
+            >
+              <Text style={[styles.tabText, { color: activeTab === 'sold' ? tintColor : subtleText }]}>
+                Sold Items
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, { 
+                backgroundColor: 'transparent',
+                borderColor: activeTab === 'listings' ? tintColor : subtleText,
+                borderWidth: 1
+              }]}
+              onPress={() => handleTabSwitch('listings')}
+            >
+              <Text style={[styles.tabText, { color: activeTab === 'listings' ? tintColor : subtleText }]}>
+              AI Search
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.searchInputRow}>
           <View style={[styles.searchInputContainer, { backgroundColor: cardColor, borderColor: borderColor, shadowColor: borderColor } ] }>
-            <SearchIcon size={20} color={subtleText} style={styles.searchIcon} />
+              
+              {/* Selected Image Preview */}
+              {selectedImage && isImageSearch && (
+                <View style={styles.imagePreviewContainer}>
+                  <Image 
+                    source={{ uri: `data:image/jpeg;base64,${selectedImage}` }} 
+                    style={styles.imagePreview}
+                    resizeMode="cover"
+                  />
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setSelectedImage(null);
+                      setIsImageSearch(false);
+                    }}
+                    style={styles.removeImageButton}
+                  >
+                    <X size={14} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+              
             <TextInput
-              style={[styles.searchInput, { color: textColor }]}
-              placeholder="Search for an item (e.g., iPhone X)"
+                style={[styles.searchInput, { 
+                  color: textColor,
+                  opacity: selectedImage && isImageSearch ? 0.5 : 1 
+                }]}
+                placeholder={
+                  selectedImage && isImageSearch 
+                    ? "Image selected - tap Search to find similar items" 
+                    : activeTab === 'sold' 
+                      ? "Search sold items (e.g., iPhone X)" 
+                      : "Search current listings with AI"
+                }
               placeholderTextColor={subtleText}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -355,20 +808,48 @@ export default function SearchScreen() {
               returnKeyType="search"
               autoCapitalize="none"
               autoCorrect={false}
-            />
-            {searchQuery.length > 0 && (
+                editable={!isImageSearch} // Disable text input when image is selected
+              />
+              
+              {/* Image picker buttons */}
+              {!selectedImage && activeTab === 'listings' && (
+                <View style={styles.imagePickerButtons}>
+                  <TouchableOpacity 
+                    onPress={() => pickImage('camera')}
+                    style={styles.imagePickerButton}
+                  >
+                    <Camera size={18} color={subtleText} />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => pickImage('gallery')}
+                    style={styles.imagePickerButton}
+                  >
+                    <ImageIcon size={18} color={subtleText} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              {(searchQuery.length > 0 || selectedImage) && (
               <TouchableOpacity onPress={handleClearSearch} style={styles.clearButton}>
                 <X size={18} color={subtleText} />
               </TouchableOpacity>
             )}
           </View>
           <TouchableOpacity 
-            style={[styles.searchButton, { backgroundColor: backgroundColor, borderColor: tintColor, borderWidth: 1, shadowColor: tintColor }]}
+              style={[styles.searchButton, { backgroundColor: backgroundColor, borderColor: activeTab === 'sold' ? tintColor : tintColor, borderWidth: 1, shadowColor: activeTab === 'sold' ? tintColor : tintColor, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }]}
             onPress={() => handleSearch()}
-            disabled={!searchQuery.trim()}
-          >
-            <Text style={[styles.searchButtonText, { color: tintColor }]}>Search</Text>
+              disabled={!searchQuery.trim() && !selectedImage}
+            >
+              <Text style={[styles.searchButtonText, { color: activeTab === 'sold' ? tintColor : tintColor }]}>
+                {selectedImage && isImageSearch
+                ?
+                  <SearchIcon size={20} color={subtleText} style={styles.searchIcon} />
+                :               
+                  <SearchIcon size={20} color={tintColor} style={styles.searchIcon} />
+                }
+              </Text>
           </TouchableOpacity>
+          </View>
         </Animated.View>
 
         {!isLoading && !results.length && !error && (
@@ -419,8 +900,9 @@ export default function SearchScreen() {
                   <>
                     <SearchStatsCard 
                       stats={stats} 
-                      purchasePrice={parseFloat(purchasePrice) || undefined} 
+                      purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined} 
                       searchTitle={searchQuery} 
+                      onViewAnalysis={stats?.data_source === 'ai_web_search' ? handleViewMarketAnalysis : undefined}
                     />
                   </>
                 )}
@@ -435,19 +917,21 @@ export default function SearchScreen() {
                 >
                   <ItemCard
                     item={{
-                      title: item.title,
-                      sale_price: typeof item.price === 'number' ? item.price : Number(item.price),
-                      image_url: item.image,
-                      condition: item.condition,
-                      date_sold: item.timestamp,
-                      buying_format: item.buyingFormat,
-                      shipping_price: item.shipping,
-                      link: item.url,
+                      title: item.title || 'Unknown Item',
+                      sale_price: typeof item.price === 'number' ? item.price : (typeof item.price === 'string' ? parseFloat(item.price) : 0),
+                      image_url: item.image || undefined,
+                      condition: typeof item.condition === 'string' ? item.condition : undefined,
+                      date_sold: item.timestamp || new Date().toISOString(),
+                      buying_format: typeof item.buyingFormat === 'string' ? item.buyingFormat : undefined,
+                      shipping_price: item.shipping || undefined,
+                      link: item.url || undefined,
                     }}
                     onPress={() => handleItemPress(item)}
-                    isOutlier={itemFlags[index]?.isOutlier}
-                    isMostRecent={itemFlags[index]?.isMostRecent}
-                    purchasePrice={parseFloat(purchasePrice) || undefined}
+                    isOutlier={itemFlags[index]?.isOutlier || null}
+                    isMostRecent={itemFlags[index]?.isMostRecent || false}
+                    purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined}
+                    isAIResult={stats?.data_source === 'ai_web_search'}
+                    sourceWebsite={typeof item.sourceWebsite === 'string' ? item.sourceWebsite : undefined}
                   />
                 </Animated.View>
               );
@@ -470,11 +954,33 @@ export default function SearchScreen() {
         ) : null}
 
         <TouchableOpacity 
-          style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, backgroundColor: tintColor, shadowColor: tintColor }]}
+          style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, borderWidth: 1, backgroundColor: backgroundColor, borderColor: tintColor }]}
           onPress={handleIdentifyItem}
         >
-          <Text style={styles.searchButtonText}>Identify an item with AI</Text>
+          <Text style={[styles.searchButtonText, { color: tintColor }]}>Identify an item with AI</Text>
         </TouchableOpacity>
+
+        {/* Tab-specific information */}
+        {!isLoading && !results.length && !error && (
+          <View style={[styles.tabInfoContainer, { marginHorizontal: 16, marginBottom: 8 }]}>
+            {activeTab === 'sold' ? (
+              <View style={[styles.infoCard, { backgroundColor: cardColor, borderColor: tintColor }]}>
+                <Text style={[styles.infoTitle, { color: textColor }]}>📊 Historical Sales Data</Text>
+                <Text style={[styles.infoText, { color: subtleText }]}>
+                  Search completed sales to see what items actually sold for. Perfect for understanding market value and pricing trends.
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.infoCard, { backgroundColor: cardColor, borderColor: tintColor }]}>
+                <Text style={[styles.infoTitle, { color: textColor }]}>🔍 AI-Powered Web Search</Text>
+                <Text style={[styles.infoText, { color: subtleText }]}>
+                  Search current listings using Perplexity's AI web search. Get real-time pricing from major retailers with verified citations. 
+                  <Text style={{ fontWeight: 'bold', color: tintColor }}> Tip:</Text> Always verify final prices on retailer websites before purchasing.
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <Modal
           visible={aiModalVisible || aiLoading}
@@ -483,7 +989,7 @@ export default function SearchScreen() {
           onRequestClose={() => { if (!aiLoading) setAiModalVisible(false); }}
         >
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' }}>
-            <View style={{ backgroundColor: cardColor, borderRadius: 12, padding: 24, width: '85%', alignItems: 'center' }}>
+            <View style={{ backgroundColor: cardColor, borderRadius: 12, padding: 24, width: '100%', alignItems: 'center' }}>
               {aiLoading ? (
                 <>
                   <ActivityIndicator size="large" color={tintColor} />
@@ -500,13 +1006,125 @@ export default function SearchScreen() {
                     placeholderTextColor={subtleText}
                   />
                   {aiError ? <Text style={{ color: errorColor, marginBottom: 8 }}>{aiError}</Text> : null}
-                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', width: '100%' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
                     <Button title="Cancel" onPress={() => setAiModalVisible(false)} color={subtleText} />
                     <View style={{ width: 12 }} />
-                    <Button title="Search" onPress={handleAiConfirm} disabled={!aiDescription.trim()} color={tintColor} />
+                      <View style={{ flexDirection: 'row'}}>
+                      {aiDescription && (
+                        <>
+                          <TouchableOpacity  onPress={handleImageSearch} style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: tintColor, padding: 10, borderRadius: 8 }}>
+                            <Text style={{ color: tintColor, textAlign: 'center' }}>Web Search</Text>
+                          </TouchableOpacity>
+                          <View style={{ width: 12 }} />
+                        </>
+                      )}
+                      <TouchableOpacity  onPress={handleAiConfirm} disabled={!aiDescription.trim()} style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: tintColor, padding: 10, borderRadius: 8 }}>
+                            <Text style={{ color: tintColor, textAlign: 'center' }}>Search</Text>
+                          </TouchableOpacity>
+                      {/* <Button title="Search" onPress={handleAiConfirm} disabled={!aiDescription.trim()} color={tintColor} /> */}
+                    </View>
                   </View>
                 </>
               )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Market Analysis Modal */}
+        <Modal
+          visible={marketAnalysisModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setMarketAnalysisModalVisible(false)}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <View style={{ 
+              flex: 1, 
+              marginTop: '20%', 
+              backgroundColor: cardColor, 
+              borderTopLeftRadius: 20, 
+              borderTopRightRadius: 20,
+              padding: 24
+            }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: textColor }}>📊 Market Analysis</Text>
+                <TouchableOpacity onPress={() => setMarketAnalysisModalVisible(false)}>
+                  <Text style={{ fontSize: 18, color: tintColor, fontWeight: 'bold' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Markdown 
+                  style={{
+                    body: {
+                      fontSize: 16,
+                      lineHeight: 24,
+                      color: textColor,
+                      fontFamily: 'Inter_400Regular'
+                    },
+                    heading1: {
+                      fontSize: 24,
+                      fontWeight: 'bold',
+                      color: textColor,
+                      marginBottom: 12,
+                      fontFamily: 'Inter_600SemiBold'
+                    },
+                    heading2: {
+                      fontSize: 20,
+                      fontWeight: 'bold',
+                      color: textColor,
+                      marginBottom: 10,
+                      marginTop: 16,
+                      fontFamily: 'Inter_600SemiBold'
+                    },
+                    heading3: {
+                      fontSize: 18,
+                      fontWeight: 'bold',
+                      color: textColor,
+                      marginBottom: 8,
+                      marginTop: 12,
+                      fontFamily: 'Inter_600SemiBold'
+                    },
+                    paragraph: {
+                      fontSize: 16,
+                      lineHeight: 24,
+                      color: textColor,
+                      marginBottom: 12,
+                      fontFamily: 'Inter_400Regular'
+                    },
+                    listItem: {
+                      fontSize: 16,
+                      lineHeight: 22,
+                      color: textColor,
+                      marginBottom: 6,
+                      fontFamily: 'Inter_400Regular'
+                    },
+                    strong: {
+                      fontWeight: 'bold',
+                      color: textColor,
+                      fontFamily: 'Inter_600SemiBold'
+                    },
+                    em: {
+                      fontStyle: 'italic',
+                      color: textColor,
+                      fontFamily: 'Inter_400Regular'
+                    },
+                    bullet_list: {
+                      marginBottom: 12
+                    },
+                    ordered_list: {
+                      marginBottom: 12
+                    },
+                    list_item: {
+                      flexDirection: 'row',
+                      alignItems: 'flex-start',
+                      marginBottom: 4
+                    }
+                  }}
+                >
+                  {stats?.market_summary || 'No market analysis available.'}
+                </Markdown>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -539,10 +1157,14 @@ const styles = StyleSheet.create({
     color: '#777',
   },
   searchContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     paddingHorizontal: 16,
     paddingTop: 8,
     marginBottom: 8,
+  },
+  searchInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   searchInputContainer: {
     flex: 1,
@@ -550,8 +1172,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 10,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 12,
-    marginRight: 10,
+    marginRight: 0,
     height: 48,
     borderWidth: 1,
     borderColor: '#eaeaea',
@@ -632,5 +1256,70 @@ const styles = StyleSheet.create({
   resultsContainer: {
     padding: 16,
     paddingTop: 8,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tab: {
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    height: 48,
+  },
+  tabText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+  },
+  tabInfoContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  infoCard: {
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#eaeaea',
+  },
+  infoTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
+    marginBottom: 12,
+  },
+  infoText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 16,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    width: 80,
+    height: 36,
+    marginRight: 8,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 10,
+    padding: 2,
+  },
+  imagePickerButtons: {
+    flexDirection: 'row',
+    marginRight: 8,
+  },
+  imagePickerButton: {
+    padding: 6,
+    marginLeft: 4,
   },
 });

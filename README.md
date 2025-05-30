@@ -41,14 +41,36 @@ npm install
 
 ### 4. Environment Variables
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root and add your environment variables:
 
 ```env
+# OpenAI API Key for image identification
 EXPO_PUBLIC_OPENAI_API_KEY=sk-...your-openai-key...
+
+# Perplexity API Key for web search (get from https://docs.perplexity.ai/)
+EXPO_PUBLIC_PERPLEXITY_API_KEY=pplx-...your-perplexity-key...
+
+# Supabase configuration
+EXPO_PUBLIC_SUPABASE_URL=your-supabase-url
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
-- **Never commit your API keys!**
-- The OpenAI key is loaded via Expo config (`app.config.js`).
+## API Keys Setup
+
+### Perplexity API (Required for AI Web Search)
+
+1. Visit [Perplexity API Settings](https://docs.perplexity.ai/guides/getting-started)
+2. Create an account and add a payment method
+3. Generate an API key
+4. Add credits to your account ($5+ recommended)
+5. Copy the API key to your `.env` file
+
+### OpenAI API (Required for Image Identification)
+
+1. Visit [OpenAI API](https://platform.openai.com/api-keys)
+2. Generate an API key
+3. Add credits to your account
+4. Copy the API key to your `.env` file
 
 ### 5. Supabase Setup
 
@@ -165,3 +187,25 @@ npm run dev
 ## License
 
 MIT
+
+## AI Web Search Fallback
+
+When eBay doesn't return results for specific items (like the exact "Pokémon Scarlet & Violet Miraidon Elite Trainer Box"), the app automatically uses AI-powered web search as a fallback.
+
+**How it works:**
+
+1. **Enhanced AI Vision**: Extracts text and identifies exact product variants
+2. **eBay Search First**: Tries multiple strategies on eBay completed listings
+3. **AI Web Search Fallback**: If no eBay results, AI searches the web for current listings
+4. **Multi-Source Results**: Finds prices from eBay, Amazon, TCGPlayer, specialty stores
+5. **Smart Data Extraction**: AI extracts pricing and availability information
+
+**Benefits:**
+
+- ✅ **No additional API keys needed** - uses your existing OpenAI key
+- ✅ **Finds specific variants** - perfect for collectibles and rare items
+- ✅ **Current market data** - gets real-time listings, not just historical
+- ✅ **Automatic fallback** - seamlessly tries web search when eBay fails
+- ✅ **Multiple sources** - compares prices across marketplaces
+
+The UI clearly shows whether data came from "eBay" or "AI Web Search" so you know the source.

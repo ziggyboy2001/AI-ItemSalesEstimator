@@ -214,18 +214,22 @@ export function useSearchHistory() {
 
   // Clear all search history
   const clearSearchHistory = useCallback(async () => {
+    // Clear the local state immediately
+    setSearchHistory([]);
+    
+    // Clear from SecureStore
+    try {
+      await SecureStore.deleteItemAsync(SEARCH_HISTORY_KEY);
+    } catch (error) {
+      console.error('Error clearing search history from local storage:', error);
+    }
+    
+    // Clear from Supabase if online
     if (userId && isOnline) {
       const { error } = await supabase.from('searches').delete().eq('user_id', userId);
       if (error) {
-        console.error('Error clearing search history:', error);
-      }
-    }
-    setSearchHistory([]);
-    if (!isOnline) {
-      try {
-        await SecureStore.deleteItemAsync(SEARCH_HISTORY_KEY);
-      } catch (error) {
-        console.error('Error clearing search history:', error);
+        console.error('Error clearing search history from database:', error);
+        throw error; // Re-throw so the calling code can handle the error
       }
     }
   }, [userId, isOnline]);

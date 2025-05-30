@@ -19,15 +19,18 @@ interface ItemCardProps {
   isOutlier?: 'high' | 'low' | null;
   isMostRecent?: boolean;
   purchasePrice?: number;
+  isAIResult?: boolean;
+  sourceWebsite?: string;
 }
 
-export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent = false, purchasePrice }: ItemCardProps) {
+export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent = false, purchasePrice, isAIResult = false, sourceWebsite }: ItemCardProps) {
   if (!item) return null;
 
+  // Color logic for outliers (could add light green for high, light red for low in future)
   const backgroundColor = isOutlier === 'high'
-    ? useThemeColor('background')// light green
+    ? useThemeColor('background')
     : isOutlier === 'low'
-      ? useThemeColor('background') // light red possibly?
+      ? useThemeColor('background')
       : useThemeColor('background');
   const textColor = useThemeColor('text');
   const priceColor = useThemeColor('tint');
@@ -44,15 +47,18 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
       activeOpacity={0.7}
     >
       <View style={styles.imageContainer}>
-        {item.image_url ? (
+        {item.image_url && !isAIResult ? (
           <Image 
             source={{ uri: item.image_url }} 
-            style={styles.image}
+            style={[styles.image, { backgroundColor: backgroundColor }]}
             resizeMode="cover"
           />
         ) : (
-          <View style={styles.noImageContainer}>
+          <View style={[styles.noImageContainer, { backgroundColor: backgroundColor }]}>
             <ShoppingBag size={24} color="#ccc" />
+            {isAIResult && sourceWebsite && typeof sourceWebsite === 'string' && sourceWebsite.trim() !== '' && (
+              <Text style={styles.sourceLabel}>{sourceWebsite}</Text>
+            )}
           </View>
         )}
         {isMostRecent && (
@@ -68,8 +74,10 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
         </Text>
         <View style={styles.detailsRow}>
           <View style={styles.detailBlock}>
-            <Text style={[styles.detailNumber, { color: priceColor }]}>{item.sale_price?.toFixed(2) ?? 'N/A'}</Text>
-            <Text style={styles.detailLabel}>Sold Price</Text>
+            <Text style={[styles.detailNumber, { color: priceColor }]}>
+              ${typeof item.sale_price === 'number' && !isNaN(item.sale_price) ? item.sale_price.toFixed(2) : 'N/A'}
+            </Text>
+            <Text style={styles.detailLabel}>{isAIResult ? 'Current Price' : 'Sold Price'}</Text>
           </View>
           {item.shipping_price && (
             <View style={styles.detailBlock}>
@@ -98,24 +106,20 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
                 if (parsed.toString() === 'Invalid Date') return d;
                 return parsed.toLocaleDateString();
               })()}</Text>
-              <Text style={styles.detailLabel}>Date Sold</Text>
+              <Text style={styles.detailLabel}>{isAIResult ? 'Date Found' : 'Date Sold'}</Text>
             </View>
           )}
-          {profit !== undefined && (
+          {profit !== undefined && typeof profit === 'number' && !isNaN(profit) && (
             <View style={styles.detailBlock}>
-              <Text style={[styles.detailNumber, { color: profitColor }]}>{profit > 0 ? '+' : ''}{profit.toFixed(2)}</Text>
+              <Text style={[styles.detailNumber, { color: profitColor }]}>
+                {profit > 0 ? '+' : ''}${Math.abs(profit).toFixed(2)}
+              </Text>
               <Text style={styles.detailLabel}>Profit/Loss</Text>
             </View>
           )}
         </View>
-        {item.condition && (
+        {item.condition && typeof item.condition === 'string' && item.condition.trim() !== '' && (
           <Text style={[styles.condition, { color: conditionColor }]}>{item.condition}</Text>
-        )}
-        {item.link && (
-          <View style={styles.linkRow}>
-            <ExternalLink size={16} color={priceColor} />
-            <Text style={styles.linkText} numberOfLines={1}>Listing</Text>
-          </View>
         )}
       </View>
     </TouchableOpacity>
@@ -143,7 +147,6 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#f7f7f7',
   },
   noImageContainer: {
     width: '100%',
@@ -217,5 +220,11 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     textDecorationLine: 'underline',
     maxWidth: 120,
+  },
+  sourceLabel: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
   },
 });
