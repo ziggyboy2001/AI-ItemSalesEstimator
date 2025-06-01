@@ -373,37 +373,83 @@ export default function SearchScreen() {
 
   const handleSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim() && !selectedImage) return;
-    setIsLoading(true);
     
-    if (activeTab === 'listings') {
-      // AI Web Search for current listings
-      if (selectedImage && isImageSearch) {
-        // Image-based search
-        await handleAIImageSearch(selectedImage);
-      } else {
-        // Text-based search
-        await handleTestAISearch(query);
+    // If searching by image, show options instead of immediately searching
+    if (selectedImage && isImageSearch) {
+      try {
+        Alert.alert(
+          'Search by Image',
+          'Choose how to search with this image:',
+          [
+            { 
+              text: 'AI Web Search', 
+              onPress: async () => {
+                setIsLoading(true);
+                if (activeTab === 'listings') {
+                  await handleAIImageSearch(selectedImage);
+                } else {
+                  // For eBay search, identify item first then search
+                  try {
+                    const description = await identifyItemFromImage(selectedImage);
+                    if (description) {
+                      setSearchQuery(description);
+                      await handleEbaySearch(description);
+                    }
+                  } catch (err) {
+                    console.error('Failed to identify item from image:', err);
+                    setSoldError('Failed to identify item from image. Please try again.');
+                    setIsLoading(false);
+                  }
+                }
+              }
+            },
+            { 
+              text: 'Google Shopping', 
+              onPress: async () => {
+                try {
+                  const description = await identifyItemFromImage(selectedImage);
+                  if (description) {
+                    const shoppingUrl = generateGoogleShoppingSearchURL(description);
+                    Linking.openURL(shoppingUrl);
+                  } else {
+                    Alert.alert('Error', 'Could not identify the item. Please try again.');
+                  }
+                } catch (err) {
+                  Alert.alert('Error', 'Failed to identify item for Google Shopping search.');
+                }
+              }
+            },
+            { 
+              text: 'Google Lens', 
+              onPress: () => {
+                const lensUrl = generateGoogleLensURL();
+                Linking.openURL(lensUrl);
+              }
+            },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } catch (err) {
+        Alert.alert('Error', 'Failed to open image search options');
       }
       return;
     }
     
-    // eBay search for historical sales (existing functionality) - only text search
-    if (selectedImage && isImageSearch) {
-      // For eBay search, we'll first identify the item then search
-      try {
-        const description = await identifyItemFromImage(selectedImage);
-        if (description) {
-          setSearchQuery(description);
-          query = description;
-        }
-      } catch (err) {
-        console.error('Failed to identify item from image:', err);
-        setSoldError('Failed to identify item from image. Please try again.');
-        setIsLoading(false);
-        return;
-      }
+    // Regular text search
+    setIsLoading(true);
+    
+    if (activeTab === 'listings') {
+      // AI Web Search for current listings
+      await handleTestAISearch(query);
+      return;
     }
     
+    // eBay search for historical sales
+    await handleEbaySearch(query);
+  }, [searchQuery, selectedImage, isImageSearch, activeTab]);
+
+  // eBay search function (extracted from original handleSearch)
+  const handleEbaySearch = useCallback(async (query: string) => {
     setSoldError('');
     try {
       const ebayRequest = await inferEbayRequestFields(query);
@@ -468,7 +514,7 @@ export default function SearchScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [searchQuery, selectedImage, isImageSearch, addRecentSearch, addToHistory, activeTab, handleTestAISearch, handleAIImageSearch]);
+  }, [addRecentSearch, addToHistory]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -1010,18 +1056,9 @@ export default function SearchScreen() {
                     <Button title="Cancel" onPress={() => setAiModalVisible(false)} color={subtleText} />
                     <View style={{ width: 12 }} />
                       <View style={{ flexDirection: 'row'}}>
-                      {aiDescription && (
-                        <>
-                          <TouchableOpacity  onPress={handleImageSearch} style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: tintColor, padding: 10, borderRadius: 8 }}>
-                            <Text style={{ color: tintColor, textAlign: 'center' }}>Web Search</Text>
-                          </TouchableOpacity>
-                          <View style={{ width: 12 }} />
-                        </>
-                      )}
                       <TouchableOpacity  onPress={handleAiConfirm} disabled={!aiDescription.trim()} style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: tintColor, padding: 10, borderRadius: 8 }}>
                             <Text style={{ color: tintColor, textAlign: 'center' }}>Search</Text>
                           </TouchableOpacity>
-                      {/* <Button title="Search" onPress={handleAiConfirm} disabled={!aiDescription.trim()} color={tintColor} /> */}
                     </View>
                   </View>
                 </>
