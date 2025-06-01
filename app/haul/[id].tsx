@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   metricCard: {
-    width: '47%',
+    flexBasis: '47%',
     margin: '1.5%',
     padding: 16,
     borderRadius: 12,
