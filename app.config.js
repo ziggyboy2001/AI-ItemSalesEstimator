@@ -21,6 +21,8 @@ export default {
       infoPlist: {
         NSCameraUsageDescription:
           'This app uses the camera to take photos of items for price estimation and analysis.',
+        NSPhotoLibraryUsageDescription:
+          'This app needs access to your photo library to select existing photos of items for price estimation and analysis.',
         ITSAppUsesNonExemptEncryption: false,
       },
     },
@@ -30,6 +32,11 @@ export default {
         foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: '#000000',
       },
+      permissions: [
+        'android.permission.CAMERA',
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+      ],
     },
     web: {
       bundler: 'metro',
