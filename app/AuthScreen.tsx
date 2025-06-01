@@ -123,9 +123,10 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     padding: 24,
+    marginTop: 50,
   },
   title: {
     fontSize: 24,
