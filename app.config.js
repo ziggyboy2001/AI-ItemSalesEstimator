@@ -18,6 +18,11 @@ export default {
     ios: {
       bundleIdentifier: 'com.bidpeek.app',
       supportsTablet: true,
+      infoPlist: {
+        NSCameraUsageDescription:
+          'This app uses the camera to take photos of items for price estimation and analysis.',
+        ITSAppUsesNonExemptEncryption: false,
+      },
     },
     android: {
       package: 'com.bidpeek.app',
