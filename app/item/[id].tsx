@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, SafeAreaView, Image, ScrollView, TouchableOpaci
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeInDown, FadeInUp } from 'react-native-reanimated';
-import { X, Share2, Bookmark, BookmarkCheck, DollarSign, TrendingUp, Calendar, Tag, ShoppingBag, SearchIcon, Copy, AlertCircle } from 'lucide-react-native';
+import { X, Share2, Bookmark, BookmarkCheck, DollarSign, TrendingUp, Calendar, Tag, ShoppingBag, SearchIcon, Copy, AlertCircle, User, Star } from 'lucide-react-native';
 
 import { useSavedItems } from '@/hooks/useSavedItems';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
@@ -46,6 +46,25 @@ export default function ItemDetailScreen() {
 
   const isSaved = savedItems.some(saved => saved?.itemId === id);
   const isAIResult = item?.isAIResult || item?.sourceWebsite;
+  
+  // Explicit current listing detection
+  const hasSellerInfo = !!(item?.seller);
+  const hasAdditionalImages = !!(item?.additionalImages && item?.additionalImages.length > 0);
+  const hasTopRatedStatus = !!(item?.topRatedBuyingExperience);
+  const isEbayListing = item?.sourceWebsite === 'ebay.com' && !item?.isAIResult;
+  
+  const isCurrentListing = hasSellerInfo || hasAdditionalImages || hasTopRatedStatus || isEbayListing;
+
+  // Quick debug
+  if (item) {
+    console.log('=== CURRENT LISTING DEBUG ===');
+    console.log('hasSellerInfo:', hasSellerInfo);
+    console.log('hasAdditionalImages:', hasAdditionalImages);
+    console.log('hasTopRatedStatus:', hasTopRatedStatus);
+    console.log('isEbayListing:', isEbayListing);
+    console.log('isCurrentListing:', isCurrentListing);
+    console.log('=== END DEBUG ===');
+  }
 
   useEffect(() => {
     if (data) {
@@ -324,6 +343,35 @@ export default function ItemDetailScreen() {
               <Text style={[styles.actionButtonText, { color: tintColor }]}>New Search</Text>
             </TouchableOpacity> */}
           </Animated.View>
+
+          {/* Seller Info for Current Listings */}
+          {(isCurrentListing && item.seller) ? (
+            <Animated.View 
+              style={[styles.sellerCard, { backgroundColor: backgroundColor }]}
+              entering={FadeInDown.delay(150).duration(400)}
+            >
+              <View style={styles.sellerHeader}>
+                <User size={20} color={tintColor} />
+                <Text style={[styles.sellerLabel, { color: textColor }]}>Seller Information</Text>
+              </View>
+              <View style={styles.sellerDetails}>
+                <Text style={[styles.sellerName, { color: textColor }]}>
+                  {item.seller?.username || 'Test Seller'}
+                </Text>
+                <View style={styles.sellerStats}>
+                  <View style={styles.sellerStat}>
+                    <Star size={16} color="#FFD700" fill="#FFD700" />
+                    <Text style={[styles.sellerStatText, { color: textColor }]}>
+                      {item.seller?.feedbackPercentage || '99'}% positive
+                    </Text>
+                  </View>
+                  <Text style={[styles.sellerFeedbackScore, { color: subtleText }]}>
+                    {item.seller?.feedbackScore || '999'} feedback
+                  </Text>
+                </View>
+              </View>
+            </Animated.View>
+          ) : null}
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -539,5 +587,48 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     marginLeft: 8,
+  },
+  sellerCard: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  sellerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sellerLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
+    marginLeft: 8,
+  },
+  sellerDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sellerName: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 16,
+    marginRight: 8,
+  },
+  sellerStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sellerStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  sellerStatText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+  },
+  sellerFeedbackScore: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
   },
 });

@@ -41,6 +41,16 @@ interface SearchResult {
   sourceWebsite?: string;
   stats?: any;
   items?: import('@/services/ebayCompletedApi').EbayCompletedItem[];
+  // Current listings specific data
+  seller?: {
+    username: string;
+    feedbackPercentage: string;
+    feedbackScore: number;
+  };
+  additionalImages?: Array<{ imageUrl: string }>;
+  topRatedBuyingExperience?: boolean;
+  buyingOptions?: string[];
+  itemOriginDate?: string;
   [key: string]: any;
 }
 
@@ -327,6 +337,12 @@ export default function SearchScreen() {
               buying_format: item.buyingOptions?.[0] || 'Current Listing',
               shipping_price: item.shippingOptions?.[0]?.shippingCost ? parseFloat(item.shippingOptions[0].shippingCost.value) : 0,
               source_website: 'ebay.com',
+              // Current listings specific data
+              seller: item.seller,
+              additionalImages: item.additionalImages,
+              topRatedBuyingExperience: item.topRatedBuyingExperience,
+              buyingOptions: item.buyingOptions,
+              itemOriginDate: item.itemOriginDate,
             };
           });
           
@@ -480,7 +496,16 @@ export default function SearchScreen() {
     const itemWithContext = {
       ...item,
       isAIResult: stats?.data_source === 'ai_web_search',
-      sourceWebsite: item.sourceWebsite
+      sourceWebsite: item.sourceWebsite,
+      // Extract current listing data from nested items array if available
+      ...(item.items && item.items[0] && {
+        seller: (item.items[0] as any).seller,
+        additionalImages: (item.items[0] as any).additionalImages,
+        topRatedBuyingExperience: (item.items[0] as any).topRatedBuyingExperience,
+        buyingOptions: (item.items[0] as any).buyingOptions,
+        itemOriginDate: (item.items[0] as any).itemOriginDate,
+        shipping_price: (item.items[0] as any).shipping_price,
+      })
     };
     
     router.push({
@@ -680,6 +705,12 @@ export default function SearchScreen() {
                   buying_format: item.buyingOptions?.[0] || 'Current Listing',
                   shipping_price: item.shippingOptions?.[0]?.shippingCost ? parseFloat(item.shippingOptions[0].shippingCost.value) : 0,
                   source_website: 'ebay.com',
+                  // Current listings specific data
+                  seller: item.seller,
+                  additionalImages: item.additionalImages,
+                  topRatedBuyingExperience: item.topRatedBuyingExperience,
+                  buyingOptions: item.buyingOptions,
+                  itemOriginDate: item.itemOriginDate,
                 };
               });
               
@@ -943,6 +974,12 @@ export default function SearchScreen() {
                       buying_format: typeof item.buyingFormat === 'string' ? item.buyingFormat : undefined,
                       shipping_price: item.shipping || undefined,
                       link: item.url || undefined,
+                      // Current listings specific data
+                      seller: item.seller,
+                      additionalImages: item.additionalImages,
+                      topRatedBuyingExperience: item.topRatedBuyingExperience,
+                      buyingOptions: item.buyingOptions,
+                      itemOriginDate: item.itemOriginDate,
                     }}
                     onPress={() => handleItemPress(item)}
                     isOutlier={itemFlags[index]?.isOutlier || null}
@@ -950,6 +987,7 @@ export default function SearchScreen() {
                     purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined}
                     isAIResult={stats?.data_source === 'ai_web_search'}
                     sourceWebsite={typeof item.sourceWebsite === 'string' ? item.sourceWebsite : undefined}
+                    isCurrentListing={stats?.data_source === 'ebay_current_listings'}
                   />
                 </Animated.View>
               );

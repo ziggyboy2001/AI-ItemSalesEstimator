@@ -135,6 +135,30 @@ export interface EbayImageSearchResponse {
       };
       discountPercentage?: string;
     };
+    // Additional fields from actual API response
+    thumbnailImages?: Array<{
+      imageUrl: string;
+    }>;
+    itemLocation?: {
+      postalCode: string;
+      country: string;
+    };
+    topRatedBuyingExperience?: boolean;
+    itemOriginDate?: string;
+    itemCreationDate?: string;
+    legacyItemId?: string;
+    epid?: string;
+    itemHref?: string;
+    leafCategoryIds?: string[];
+    adultOnly?: boolean;
+    availableCoupons?: boolean;
+    priorityListing?: boolean;
+    listingMarketplaceId?: string;
+    pickupOptions?: Array<{
+      pickupLocationType: string;
+    }>;
+    itemGroupHref?: string;
+    itemGroupType?: string;
   }[];
   refinement?: {
     aspectDistributions?: Array<{

@@ -14,6 +14,16 @@ interface ItemCardProps {
     buying_format?: string;
     shipping_price?: string | number;
     link?: string;
+    // Current listings specific data
+    seller?: {
+      username: string;
+      feedbackPercentage: string;
+      feedbackScore: number;
+    };
+    additionalImages?: Array<{ imageUrl: string }>;
+    topRatedBuyingExperience?: boolean;
+    buyingOptions?: string[];
+    itemOriginDate?: string; // For current listings date
   };
   onPress: () => void;
   isOutlier?: 'high' | 'low' | null;
@@ -21,24 +31,40 @@ interface ItemCardProps {
   purchasePrice?: number;
   isAIResult?: boolean;
   sourceWebsite?: string;
+  isCurrentListing?: boolean; // New flag to identify current listings
 }
 
-export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent = false, purchasePrice, isAIResult = false, sourceWebsite }: ItemCardProps) {
+export default function ItemCard({ 
+  item, 
+  onPress, 
+  isOutlier = null, 
+  isMostRecent = false, 
+  purchasePrice, 
+  isAIResult = false, 
+  sourceWebsite,
+  isCurrentListing = false 
+}: ItemCardProps) {
   if (!item) return null;
 
-  // Color logic for outliers (could add light green for high, light red for low in future)
-  const backgroundColor = isOutlier === 'high'
-    ? useThemeColor('background')
-    : isOutlier === 'low'
-      ? useThemeColor('background')
-      : useThemeColor('background');
+  // Color logic for outliers
+  const backgroundColor = useThemeColor('background');
   const textColor = useThemeColor('text');
   const priceColor = useThemeColor('tint');
   const conditionColor = useThemeColor('tabIconDefault');
   const timeColor = useThemeColor('tabIconDefault');
   const badgeColor = '#FFD700'; // gold for 'Most Recent'
+  const successColor = '#2ecc40';
+  const errorColor = '#e74c3c';
+  
   const profit = purchasePrice !== undefined ? (item.sale_price - purchasePrice) : undefined;
-  const profitColor = profit !== undefined ? (profit > 0 ? '#2ecc40' : '#e74c3c') : priceColor;
+  const profitColor = profit !== undefined ? (profit > 0 ? successColor : errorColor) : priceColor;
+
+  // Current listings specific logic
+  const hasMultipleImages = isCurrentListing && item.additionalImages && item.additionalImages.length > 0;
+  const imageCount = hasMultipleImages ? (item.additionalImages?.length ?? 0) + 1 : 1; // +1 for main image
+  const sellerRating = isCurrentListing && item.seller ? parseFloat(item.seller.feedbackPercentage || '0') : null;
+  const isTopRated = isCurrentListing && item.topRatedBuyingExperience;
+  const hasBestOffer = isCurrentListing && item.buyingOptions?.includes('BEST_OFFER');
 
   return (
     <TouchableOpacity
@@ -77,13 +103,15 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
             <Text style={[styles.detailNumber, { color: priceColor }]}>
               ${typeof item.sale_price === 'number' && !isNaN(item.sale_price) ? item.sale_price.toFixed(2) : 'N/A'}
             </Text>
-            <Text style={styles.detailLabel}>{isAIResult ? 'Current Price' : 'Sold Price'}</Text>
+            <Text style={styles.detailLabel}>{isCurrentListing ? 'Current Price' : (isAIResult ? 'Current Price' : 'Sold Price')}</Text>
           </View>
-          {item.shipping_price && (
+          
+          {/* Shipping info */}
+          {item.shipping_price !== undefined && (
             <View style={styles.detailBlock}>
               <Text style={[styles.detailNumber, { color: priceColor }]}>{
                 typeof item.shipping_price === 'number'
-                  ? `$${item.shipping_price}`
+                  ? item.shipping_price === 0 ? 'Free' : `$${item.shipping_price.toFixed(2)}`
                   : (typeof item.shipping_price === 'string' && item.shipping_price.toLowerCase().includes('free'))
                     ? 'Free'
                     : item.shipping_price
@@ -91,13 +119,25 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
               <Text style={styles.detailLabel}>Shipping</Text>
             </View>
           )}
+          
+          {/* Seller info for current listings */}
+          {isCurrentListing && item.seller && (
+            <View style={styles.detailBlock}>
+              <Text style={[styles.detailNumber, { color: priceColor }]}>{item.seller.feedbackScore || 0}</Text>
+              <Text style={styles.detailLabel}>Seller Feedback</Text>
+            </View>
+          )}
+          
+          {/* Format/Type */}
           {item.buying_format && (
             <View style={styles.detailBlock}>
               <Text style={[styles.detailNumber, { color: priceColor }]}>{item.buying_format}</Text>
               <Text style={styles.detailLabel}>Format</Text>
             </View>
           )}
-          {item.date_sold && (
+          
+          {/* Date - only for sold items */}
+          {!isCurrentListing && item.date_sold && (
             <View style={styles.detailBlock}>
               <Text style={[styles.detailNumber, { color: priceColor }]}>{(() => {
                 const d = item.date_sold;
@@ -109,6 +149,16 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
               <Text style={styles.detailLabel}>{isAIResult ? 'Date Found' : 'Date Sold'}</Text>
             </View>
           )}
+          
+          {/* Best Offer indicator for current listings */}
+          {isCurrentListing && hasBestOffer && (
+            <View style={styles.detailBlock}>
+              <Text style={[styles.detailNumber, { color: successColor }]}>Yes</Text>
+              <Text style={styles.detailLabel}>Best Offer</Text>
+            </View>
+          )}
+          
+          {/* Profit/Loss calculation */}
           {profit !== undefined && typeof profit === 'number' && !isNaN(profit) && (
             <View style={styles.detailBlock}>
               <Text style={[styles.detailNumber, { color: profitColor }]}>
@@ -118,9 +168,22 @@ export default function ItemCard({ item, onPress, isOutlier = null, isMostRecent
             </View>
           )}
         </View>
-        {item.condition && typeof item.condition === 'string' && item.condition.trim() !== '' && (
-          <Text style={[styles.condition, { color: conditionColor }]}>{item.condition}</Text>
-        )}
+
+        {/* Condition and additional info */}
+        <View style={styles.bottomRow}>
+          {item.condition && typeof item.condition === 'string' && item.condition.trim() !== '' && (
+            <View style={styles.conditionBadge}>
+              <Text style={[styles.conditionText, { color: conditionColor }]}>{item.condition}</Text>
+            </View>
+          )}
+          
+          {/* Current listings: show seller name */}
+          {isCurrentListing && item.seller && (
+            <View style={styles.sellerInfo}>
+              <Text style={[styles.sellerName, { color: conditionColor }]}>by {item.seller.username}</Text>
+            </View>
+          )}
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -226,5 +289,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginTop: 2,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  conditionBadge: {
+    padding: 4,
+    borderRadius: 4,
+    backgroundColor: '#e0e0e0',
+  },
+  conditionText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#666',
+  },
+  sellerInfo: {
+    marginLeft: 8,
+  },
+  sellerName: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    color: '#666',
   },
 });
