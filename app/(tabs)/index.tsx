@@ -24,6 +24,7 @@ import { identifyItemFromImage } from '@/utils/openaiVision';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { searchWebWithOpenAI, searchWebWithChatGPT, simpleAIWebSearch, searchByImage } from '@/services/aiWebSearch';
 import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
+import { searchByImage as ebaySearchByImage, EbayError, EbayErrorType } from '@/services/ebayApi';
 
 interface SearchResult {
   itemId: string;
@@ -572,10 +573,10 @@ export default function SearchScreen() {
     try {
       Alert.alert(
         'Search with Image',
-        'How would you like to search?',
+        'Choose how to search:',
         [
-          { text: 'Search Similar Items (AI)', onPress: () => pickImageForSearch() },
-          { text: 'Identify Item Only', onPress: () => pickImageForIdentify() },
+          { text: 'Search Similar Items', onPress: () => pickImageForSearch() },
+          { text: 'Identify Item', onPress: () => pickImageForIdentify() },
           { text: 'Cancel', style: 'cancel' },
         ]
       );
@@ -601,14 +602,14 @@ export default function SearchScreen() {
       'Select Image Source',
       'Take a photo or choose from gallery?',
       [
-        { text: 'Camera', onPress: () => pickImageOld('camera') },
-        { text: 'Gallery', onPress: () => pickImageOld('gallery') },
+        { text: 'Camera', onPress: () => pickImage('camera', true) },
+        { text: 'Gallery', onPress: () => pickImage('gallery', true) },
         { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
 
-  const pickImageOld = async (source: 'camera' | 'gallery') => {
+  const pickImage = async (source: 'camera' | 'gallery', forIdentification: boolean = false) => {
     try {
       let permissionResult;
       if (source === 'camera') {
@@ -644,71 +645,39 @@ export default function SearchScreen() {
         return;
       }
 
-      // Show AI identification modal
-      setAiLoading(true);
-      setAiModalVisible(true);
-      setAiError('');
-      setAiDescription('');
-      try {
-        const description = await identifyItemFromImage(result.assets[0].base64);
-        setAiDescription(description || '');
-      } catch (err) {
-        console.error('AI error:', err);
-        setAiError('Failed to identify item.');
-      } finally {
-        setAiLoading(false);
-      }
-      
-    } catch (err) {
-      console.error('pickImageOld error:', err);
-      Alert.alert('Error', 'Something went wrong while picking the image.');
-    }
-  };
-
-  const pickImage = async (source: 'camera' | 'gallery') => {
-    try {
-      let permissionResult;
-      if (source === 'camera') {
-        permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-        if (!permissionResult.granted) {
-          Alert.alert('Permission required', 'Camera permission is required to take a photo.');
-          return;
+      if (forIdentification) {
+        // Use eBay's searchByImage for identification
+        setAiLoading(true);
+        setAiModalVisible(true);
+        setAiError('');
+        setAiDescription('');
+        
+        try {
+          const ebayResults = await ebaySearchByImage({
+            image: result.assets[0].base64,
+            limit: 1
+          });
+          
+          if (ebayResults.itemSummaries && ebayResults.itemSummaries.length > 0) {
+            setAiDescription(ebayResults.itemSummaries[0].title);
+          } else {
+            setAiError('Could not identify item. Please try again.');
+          }
+        } catch (err) {
+          console.error('eBay search error:', err);
+          setAiError('Failed to identify item.');
+        } finally {
+          setAiLoading(false);
         }
       } else {
-        permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permissionResult.granted) {
-          Alert.alert('Permission required', 'Media library permission is required to select a photo.');
-          return;
+        // Set the image for search
+        setSelectedImage(result.assets[0].base64);
+        setIsImageSearch(true);
+        setSearchQuery('');
+        
+        if (activeTab === 'sold') {
+          setActiveTab('listings');
         }
-      }
-
-      let result;
-      if (source === 'camera') {
-        result = await ImagePicker.launchCameraAsync({
-          mediaTypes: 'images',
-          base64: true,
-          quality: 0.8,
-        });
-      } else {
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: 'images',
-          base64: true,
-          quality: 0.8,
-        });
-      }
-
-      if (result.canceled || !result.assets?.[0]?.base64) {
-        return;
-      }
-
-      // Set the image in the search bar for image search
-      setSelectedImage(result.assets[0].base64);
-      setIsImageSearch(true);
-      setSearchQuery(''); // Clear text query when image is selected
-      
-      // Auto-switch to listings tab for image search (only AI search supports image)
-      if (activeTab === 'sold') {
-        setActiveTab('listings');
       }
       
     } catch (err) {
@@ -724,34 +693,100 @@ export default function SearchScreen() {
   };
 
   const handleImageSearch = async () => {
+    if (!selectedImage) {
+      console.log('❌ No image selected for search');
+      Alert.alert('Error', 'Please select an image first');
+      return;
+    }
+
+    console.log('🔍 Starting image search process...');
+    setIsLoading(true);
+    setListingsError('');
+    
     try {
-      Alert.alert(
-        'Search by Image',
-        'Choose how to search with the image:',
-        [
-          { 
-            text: 'Google Shopping', 
-            onPress: () => {
-              if (aiDescription) {
-                const shoppingUrl = generateGoogleShoppingSearchURL(aiDescription);
-                Linking.openURL(shoppingUrl);
-              } else {
-                Alert.alert('Error', 'Please identify the item first to search Google Shopping');
-              }
-            }
-          },
-          { 
-            text: 'Google Lens', 
-            onPress: () => {
-              const lensUrl = generateGoogleLensURL();
-              Linking.openURL(lensUrl);
-            }
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      );
-    } catch (err) {
-      Alert.alert('Error', 'Failed to open image search');
+      console.log('Calling eBay searchByImage API...');
+      const ebayImageResults = await ebaySearchByImage({
+        image: selectedImage,
+        limit: 50
+      });
+
+      console.log(`✅ Found ${ebayImageResults.itemSummaries.length} items matching image`);
+
+      // Map eBay results to our SearchResult format
+      const mappedResults: SearchResult[] = ebayImageResults.itemSummaries.map(item => ({
+        itemId: item.itemId,
+        title: item.title,
+        price: Number(item.price.value),
+        image: item.image?.imageUrl,
+        condition: item.condition,
+        timestamp: new Date().toISOString(),
+        query: 'Image Search',
+        url: item.itemWebUrl,
+        source: 'ebay',
+        sourceWebsite: 'ebay.com'
+      }));
+
+      console.log('Mapped results:', {
+        count: mappedResults.length,
+        firstItem: mappedResults[0]?.title
+      });
+
+      // Update UI with results
+      setListingsResults(mappedResults);
+      
+      // Use the first item's title for the sold items search
+      const firstItemTitle = ebayImageResults.itemSummaries[0].title;
+      console.log('Using title for search:', firstItemTitle);
+      setSearchQuery(firstItemTitle);
+      
+      // Show the identification modal with the title
+      setAiDescription(firstItemTitle);
+      setAiModalVisible(true);
+      
+      // Add to search history
+      console.log('Adding search to history...');
+      await addToHistory({
+        itemId: mappedResults[0].itemId,
+        query: 'Image Search',
+        title: firstItemTitle,
+        image: mappedResults[0].image,
+        link: mappedResults[0].url,
+        price: mappedResults[0].price,
+      });
+
+      console.log('✅ Image search process completed successfully');
+
+    } catch (error) {
+      console.error('Error in image search:', error);
+      
+      if (error instanceof EbayError) {
+        switch (error.type) {
+          case EbayErrorType.AUTH_FAILED:
+            setListingsError('Authentication failed. Please try again later.');
+            break;
+          case EbayErrorType.INVALID_IMAGE:
+            setListingsError('Invalid image. Please try a different image.');
+            break;
+          case EbayErrorType.NO_RESULTS:
+            setListingsError('No items found matching this image. Try a clearer photo.');
+            break;
+          case EbayErrorType.RATE_LIMIT:
+            setListingsError('Too many requests. Please wait a moment and try again.');
+            break;
+          case EbayErrorType.SERVER_ERROR:
+            setListingsError('eBay service is temporarily unavailable. Please try again later.');
+            break;
+          case EbayErrorType.NETWORK_ERROR:
+            setListingsError('Network error. Please check your connection and try again.');
+            break;
+          default:
+            setListingsError('Failed to search by image. Please try again.');
+        }
+      } else {
+        setListingsError('An unexpected error occurred. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1003,7 +1038,7 @@ export default function SearchScreen() {
           style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, borderWidth: 1, backgroundColor: backgroundColor, borderColor: tintColor }]}
           onPress={handleIdentifyItem}
         >
-          <Text style={[styles.searchButtonText, { color: tintColor }]}>Identify an item with AI</Text>
+          <Text style={[styles.searchButtonText, { color: tintColor }]}>Identify item by image</Text>
         </TouchableOpacity>
 
         {/* Tab-specific information */}
