@@ -1,11 +1,15 @@
 // Old eBay API logic removed. Use services/ebayCompletedApi.ts for new API integration.
 
 import { Buffer } from 'buffer';
-import { OPENAI_API_KEY, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET } from '@env';
+import { OPENAI_API_KEY } from '@env';
 
 // Update URLs to use production endpoints
 const EBAY_API_URL = 'https://api.ebay.com/buy/browse/v1';
 const EBAY_AUTH_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
+
+// Production credentials from environment
+const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID || 'KeithZah-bidpeek-PRD-9efff03ae-f2d8c8c1';
+const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET || 'PRD-efff03ae1b85-75a1-442e-8910-1b22';
 
 // Add fetch timeout helper
 const fetchWithTimeout = async (url: string, options: RequestInit, timeout = 30000) => {
