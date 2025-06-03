@@ -24,7 +24,7 @@ import { identifyItemFromImage } from '@/utils/openaiVision';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { searchWebWithOpenAI, searchWebWithChatGPT, simpleAIWebSearch, searchByImage } from '@/services/aiWebSearch';
 import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
-import { searchByImage as ebaySearchByImage, EbayError, EbayErrorType } from '@/services/ebayApi';
+import { searchByImage as ebaySearchByImage, EbayError, EbayErrorType, calculateEbayImageSearchStats, simplifyItemTitle } from '@/services/ebayApi';
 
 interface SearchResult {
   itemId: string;
@@ -294,145 +294,70 @@ export default function SearchScreen() {
     }
   }, [searchQuery, addRecentSearch]);
 
-  const handleAIImageSearch = useCallback(async (imageBase64: string) => {
-    setIsLoading(true);
-    setListingsError('');
-    try {
-      console.log('🖼️ Starting image-based search...');
-      
-      const aiResult = await searchByImage(imageBase64);
-      
-      console.log('=== IMAGE SEARCH RESULT RECEIVED ===');
-      console.log('AI Result Success:', aiResult.success);
-      console.log('AI Result Products:', aiResult.products);
-      console.log('AI Result Summary:', aiResult.summary);
-      console.log('=== END IMAGE SEARCH RESULT ===');
-      
-      if (!aiResult.success) {
-        setListingsError(aiResult.summary || 'Image search failed');
-        setListingsResults([]);
-        setListingsStats(null);
-        setListingsItemFlags([]);
-        return;
-      }
-      
-      // Convert AI image search results to our expected format
-      const convertedItems = aiResult.products.map((product, index) => {
-        const converted = {
-          item_id: product.link || `ai-image-${Date.now()}-${Math.random()}`,
-          title: product.title,
-          sale_price: product.price || 0,
-          image_url: undefined,
-          condition: product.condition || 'Unknown',
-          date_sold: new Date().toISOString(),
-          link: product.link,
-          buying_format: 'Store Listing',
-          shipping_price: 0,
-          source_website: product.source,
-        };
-        
-        return converted;
-      });
-      
-      const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, 'Image Search'));
-      
-      // Create stats from AI image search results
-      const prices = aiResult.products.map(p => p.price).filter(p => p > 0);
-      const stats = {
-        average_price: prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0,
-        median_price: prices.length > 0 ? prices.sort((a, b) => a - b)[Math.floor(prices.length / 2)] : 0,
-        min_price: prices.length > 0 ? Math.min(...prices) : 0,
-        max_price: prices.length > 0 ? Math.max(...prices) : 0,
-        results: aiResult.products.length,
-        strategy_used: 'ai_image_search',
-        original_term: 'Image Search',
-        source: 'AI Image Search',
-        market_summary: aiResult.summary,
-        data_source: 'ai_web_search',
-        resaleability_score: 0,
-        match_quality: 0,
-        market_activity: aiResult.products.length > 10 ? 'High' : aiResult.products.length > 3 ? 'Medium' : 'Low',
-      };
-      
-      setListingsStats(stats);
-      setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
-      setListingsResults(mappedResults);
-      
-      console.log('Image Search Results:', {
-        products: aiResult.products.length,
-        average_price: stats.average_price,
-        summary: aiResult.summary
-      });
-      
-    } catch (err) {
-      setListingsError('Image search failed. Check console for details.');
-      console.error('Image search error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
   const handleSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim() && !selectedImage) return;
     
-    // If searching by image, show options instead of immediately searching
+    // If searching by image, directly do AI Web Search (Google options available as inline buttons)
     if (selectedImage && isImageSearch) {
+      setIsLoading(true);
       try {
-        Alert.alert(
-          'Search by Image',
-          'Choose how to search with this image:',
-          [
-            { 
-              text: 'AI Web Search', 
-              onPress: async () => {
-                setIsLoading(true);
-                if (activeTab === 'listings') {
-                  await handleAIImageSearch(selectedImage);
-                } else {
-                  // For eBay search, identify item first then search
-                  try {
-                    const description = await identifyItemFromImage(selectedImage);
-                    if (description) {
-                      setSearchQuery(description);
-                      await handleEbaySearch(description);
-                    }
-                  } catch (err) {
-                    console.error('Failed to identify item from image:', err);
-                    setSoldError('Failed to identify item from image. Please try again.');
-                    setIsLoading(false);
-                  }
-                }
-              }
-            },
-            { 
-              text: 'Google Shopping', 
-              onPress: async () => {
-                try {
-                  const description = await identifyItemFromImage(selectedImage);
-                  if (description) {
-                    const shoppingUrl = generateGoogleShoppingSearchURL(description);
-                    Linking.openURL(shoppingUrl);
-                  } else {
-                    Alert.alert('Error', 'Could not identify the item. Please try again.');
-                  }
-                } catch (err) {
-                  Alert.alert('Error', 'Failed to identify item for Google Shopping search.');
-                }
-              }
-            },
-            { 
-              text: 'Google Lens', 
-              onPress: () => {
-                const lensUrl = generateGoogleLensURL();
-                Linking.openURL(lensUrl);
-              }
-            },
-            { text: 'Cancel', style: 'cancel' },
-          ]
-        );
+        console.log('🔍 Using eBay Image Search for identification and data population...');
+        const ebayResults = await ebaySearchByImage({
+          image: selectedImage,
+          limit: 50
+        });
+        
+        if (ebayResults.itemSummaries && ebayResults.itemSummaries.length > 0) {
+          const identifiedTitle = ebayResults.itemSummaries[0].title;
+          console.log('✅ eBay identified item:', identifiedTitle);
+          
+          // Calculate stats from eBay response for Current Listings tab
+          const stats = calculateEbayImageSearchStats(ebayResults, 'Image Search');
+          
+          // Convert eBay results to our expected format for Current Listings tab
+          const convertedItems = ebayResults.itemSummaries.map((item) => {
+            return {
+              item_id: item.itemId,
+              title: item.title,
+              sale_price: parseFloat(item.price.value) || 0,
+              image_url: item.image?.imageUrl,
+              condition: item.condition || 'Unknown',
+              date_sold: new Date().toISOString(),
+              link: item.itemWebUrl,
+              buying_format: item.buyingOptions?.[0] || 'Current Listing',
+              shipping_price: item.shippingOptions?.[0]?.shippingCost ? parseFloat(item.shippingOptions[0].shippingCost.value) : 0,
+              source_website: 'ebay.com',
+            };
+          });
+          
+          const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, 'Image Search'));
+          
+          // Populate Current Listings tab with the eBay image search results
+          setListingsResults(mappedResults);
+          setListingsStats(stats);
+          setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
+          
+          console.log('✅ Populated Current Listings tab with', mappedResults.length, 'items');
+          
+          // Set the search query (use original title for Current Listings)
+          setSearchQuery(identifiedTitle);
+          
+        } else {
+          if (activeTab === 'sold') {
+            setSoldError('Could not identify item from image. Please try again.');
+          } else {
+            setListingsError('Could not identify item from image. Please try again.');
+          }
+        }
       } catch (err) {
-        Alert.alert('Error', 'Failed to open image search options');
+        console.error('Failed to identify item from image:', err);
+        if (activeTab === 'sold') {
+          setSoldError('Failed to identify item from image. Please try again.');
+        } else {
+          setListingsError('Failed to identify item from image. Please try again.');
+        }
       }
+      setIsLoading(false);
       return;
     }
     
@@ -585,6 +510,22 @@ export default function SearchScreen() {
     }
   };
 
+  const handleImageSearchFlow = async () => {
+    try {
+      Alert.alert(
+        'Search with Image',
+        'Take a photo or choose from gallery to search for similar items:',
+        [
+          { text: 'Camera', onPress: () => pickImage('camera') },
+          { text: 'Gallery', onPress: () => pickImage('gallery') },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    } catch (err) {
+      Alert.alert('Error', 'Failed to start image search');
+    }
+  };
+
   const pickImageForSearch = async () => {
     Alert.alert(
       'Select Image Source',
@@ -653,31 +594,116 @@ export default function SearchScreen() {
         setAiDescription('');
         
         try {
+          console.log('🔍 Using eBay Image Search for item identification...');
           const ebayResults = await ebaySearchByImage({
             image: result.assets[0].base64,
             limit: 1
           });
           
           if (ebayResults.itemSummaries && ebayResults.itemSummaries.length > 0) {
-            setAiDescription(ebayResults.itemSummaries[0].title);
+            const identifiedTitle = ebayResults.itemSummaries[0].title;
+            const simplifiedTitle = await simplifyItemTitle(identifiedTitle);
+            console.log('✅ eBay identified item:', identifiedTitle);
+            console.log('📝 Simplified title:', simplifiedTitle);
+            setAiDescription(simplifiedTitle);
           } else {
             setAiError('Could not identify item. Please try again.');
           }
         } catch (err) {
-          console.error('eBay search error:', err);
-          setAiError('Failed to identify item.');
+          console.error('eBay identification error:', err);
+          if (err instanceof EbayError) {
+            switch (err.type) {
+              case EbayErrorType.AUTH_FAILED:
+                setAiError('Authentication failed. Please try again later.');
+                break;
+              case EbayErrorType.INVALID_IMAGE:
+                setAiError('Invalid image. Please try a different image.');
+                break;
+              case EbayErrorType.NO_RESULTS:
+                setAiError('Could not identify item. Try a clearer photo.');
+                break;
+              case EbayErrorType.RATE_LIMIT:
+                setAiError('Too many requests. Please wait a moment and try again.');
+                break;
+              default:
+                setAiError('Failed to identify item. Please try again.');
+            }
+          } else {
+            setAiError('Failed to identify item. Please try again.');
+          }
         } finally {
           setAiLoading(false);
         }
       } else {
         // Set the image for search
-        setSelectedImage(result.assets[0].base64);
+        const imageBase64 = result.assets[0].base64;
+        if (!imageBase64) {
+          Alert.alert('Error', 'Failed to process image. Please try again.');
+          return;
+        }
+        
+        setSelectedImage(imageBase64);
         setIsImageSearch(true);
         setSearchQuery('');
         
         if (activeTab === 'sold') {
           setActiveTab('listings');
         }
+        
+        // Automatically trigger the AI Web Search directly (bypass the 3-option modal)
+        setTimeout(async () => {
+          setIsLoading(true);
+          try {
+            console.log('🔍 Auto-triggering AI Web Search from button...');
+            const ebayResults = await ebaySearchByImage({
+              image: imageBase64,
+              limit: 50
+            });
+            
+            if (ebayResults.itemSummaries && ebayResults.itemSummaries.length > 0) {
+              const identifiedTitle = ebayResults.itemSummaries[0].title;
+              console.log('✅ eBay identified item:', identifiedTitle);
+              
+              // Calculate stats from eBay response for Current Listings tab
+              const stats = calculateEbayImageSearchStats(ebayResults, 'Image Search');
+              
+              // Convert eBay results to our expected format for Current Listings tab
+              const convertedItems = ebayResults.itemSummaries.map((item) => {
+                return {
+                  item_id: item.itemId,
+                  title: item.title,
+                  sale_price: parseFloat(item.price.value) || 0,
+                  image_url: item.image?.imageUrl,
+                  condition: item.condition || 'Unknown',
+                  date_sold: new Date().toISOString(),
+                  link: item.itemWebUrl,
+                  buying_format: item.buyingOptions?.[0] || 'Current Listing',
+                  shipping_price: item.shippingOptions?.[0]?.shippingCost ? parseFloat(item.shippingOptions[0].shippingCost.value) : 0,
+                  source_website: 'ebay.com',
+                };
+              });
+              
+              const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, 'Image Search'));
+              
+              // Populate Current Listings tab with the eBay image search results
+              setListingsResults(mappedResults);
+              setListingsStats(stats);
+              setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
+              
+              console.log('✅ Populated Current Listings tab with', mappedResults.length, 'items');
+              
+              // Set the search query (use original title for Current Listings)
+              setSearchQuery(identifiedTitle);
+              
+            } else {
+              setListingsError('Could not find items matching this image. Please try again.');
+            }
+          } catch (err) {
+            console.error('Auto image search error:', err);
+            setListingsError('Failed to search by image. Please try again.');
+          }
+          setIsLoading(false);
+        }, 100);
       }
       
     } catch (err) {
@@ -687,106 +713,16 @@ export default function SearchScreen() {
   };
 
   const handleAiConfirm = async () => {
-    setSearchQuery(aiDescription);
+    const queryToUse = aiDescription;
+    setSearchQuery(queryToUse);
     setAiModalVisible(false);
-    await handleSearch(aiDescription);
-  };
-
-  const handleImageSearch = async () => {
-    if (!selectedImage) {
-      console.log('❌ No image selected for search');
-      Alert.alert('Error', 'Please select an image first');
-      return;
-    }
-
-    console.log('🔍 Starting image search process...');
-    setIsLoading(true);
-    setListingsError('');
     
-    try {
-      console.log('Calling eBay searchByImage API...');
-      const ebayImageResults = await ebaySearchByImage({
-        image: selectedImage,
-        limit: 50
-      });
-
-      console.log(`✅ Found ${ebayImageResults.itemSummaries.length} items matching image`);
-
-      // Map eBay results to our SearchResult format
-      const mappedResults: SearchResult[] = ebayImageResults.itemSummaries.map(item => ({
-        itemId: item.itemId,
-        title: item.title,
-        price: Number(item.price.value),
-        image: item.image?.imageUrl,
-        condition: item.condition,
-        timestamp: new Date().toISOString(),
-        query: 'Image Search',
-        url: item.itemWebUrl,
-        source: 'ebay',
-        sourceWebsite: 'ebay.com'
-      }));
-
-      console.log('Mapped results:', {
-        count: mappedResults.length,
-        firstItem: mappedResults[0]?.title
-      });
-
-      // Update UI with results
-      setListingsResults(mappedResults);
-      
-      // Use the first item's title for the sold items search
-      const firstItemTitle = ebayImageResults.itemSummaries[0].title;
-      console.log('Using title for search:', firstItemTitle);
-      setSearchQuery(firstItemTitle);
-      
-      // Show the identification modal with the title
-      setAiDescription(firstItemTitle);
-      setAiModalVisible(true);
-      
-      // Add to search history
-      console.log('Adding search to history...');
-      await addToHistory({
-        itemId: mappedResults[0].itemId,
-        query: 'Image Search',
-        title: firstItemTitle,
-        image: mappedResults[0].image,
-        link: mappedResults[0].url,
-        price: mappedResults[0].price,
-      });
-
-      console.log('✅ Image search process completed successfully');
-
-    } catch (error) {
-      console.error('Error in image search:', error);
-      
-      if (error instanceof EbayError) {
-        switch (error.type) {
-          case EbayErrorType.AUTH_FAILED:
-            setListingsError('Authentication failed. Please try again later.');
-            break;
-          case EbayErrorType.INVALID_IMAGE:
-            setListingsError('Invalid image. Please try a different image.');
-            break;
-          case EbayErrorType.NO_RESULTS:
-            setListingsError('No items found matching this image. Try a clearer photo.');
-            break;
-          case EbayErrorType.RATE_LIMIT:
-            setListingsError('Too many requests. Please wait a moment and try again.');
-            break;
-          case EbayErrorType.SERVER_ERROR:
-            setListingsError('eBay service is temporarily unavailable. Please try again later.');
-            break;
-          case EbayErrorType.NETWORK_ERROR:
-            setListingsError('Network error. Please check your connection and try again.');
-            break;
-          default:
-            setListingsError('Failed to search by image. Please try again.');
-        }
-      } else {
-        setListingsError('An unexpected error occurred. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
+    if (activeTab === 'listings') {
+      // For listings tab, run AI web search with the confirmed query
+      await handleTestAISearch(queryToUse);
+    } else {
+      // For sold tab, run eBay historical search with the confirmed query
+      await handleEbaySearch(queryToUse);
     }
   };
 
@@ -842,7 +778,7 @@ export default function SearchScreen() {
               onPress={() => handleTabSwitch('listings')}
             >
               <Text style={[styles.tabText, { color: activeTab === 'listings' ? tintColor : subtleText }]}>
-              AI Search
+              Current Listings
               </Text>
             </TouchableOpacity>
           </View>
@@ -984,6 +920,7 @@ export default function SearchScreen() {
                       purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined} 
                       searchTitle={searchQuery} 
                       onViewAnalysis={stats?.data_source === 'ai_web_search' ? handleViewMarketAnalysis : undefined}
+                      selectedImage={isImageSearch && selectedImage !== null ? selectedImage : undefined}
                     />
                   </>
                 )}
@@ -1036,9 +973,11 @@ export default function SearchScreen() {
 
         <TouchableOpacity 
           style={[styles.searchButton, { marginHorizontal: 16, marginBottom: 8, borderWidth: 1, backgroundColor: backgroundColor, borderColor: tintColor }]}
-          onPress={handleIdentifyItem}
+          onPress={activeTab === 'sold' ? handleIdentifyItem : handleImageSearchFlow}
         >
-          <Text style={[styles.searchButtonText, { color: tintColor }]}>Identify item by image</Text>
+          <Text style={[styles.searchButtonText, { color: tintColor }]}>
+            {activeTab === 'sold' ? 'Identify item by image' : 'Search with image'}
+          </Text>
         </TouchableOpacity>
 
         {/* Tab-specific information */}
@@ -1078,7 +1017,8 @@ export default function SearchScreen() {
                 </>
               ) : (
                 <>
-                  <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: textColor }}>AI Description</Text>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: textColor }}>AI Identification</Text>
+                  <Text style={{ fontSize: 12, marginBottom: 12, color: subtleText, marginTop: 4, textAlign: 'center' }}>You can manually enter a description below.  If the item does not return any results, try a different description in the search bar!</Text>
                   <TextInput
                     style={{ borderWidth: 1, borderColor: borderColor, borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 16, width: '100%', color: textColor }}
                     value={aiDescription}

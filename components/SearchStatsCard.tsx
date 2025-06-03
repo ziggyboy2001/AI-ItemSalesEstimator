@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, Platform, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { StyleSheet, View, Text, Platform, TextInput, TouchableOpacity, Alert, Linking } from 'react-native';
 import { ProgressBarAndroid } from 'react-native';
-import { DollarSign, TrendingUp, Clock, Award, ThumbsUp, Users, ChevronRight } from 'lucide-react-native';
+import { DollarSign, TrendingUp, Clock, Award, ThumbsUp, Users, ChevronRight, ShoppingBag, Camera } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { supabase } from '@/services/supabaseClient';
+import { searchByImage as ebaySearchByImage, simplifyItemTitle } from '@/services/ebayApi';
+import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
 
 //test comment
 
@@ -31,6 +33,7 @@ interface SearchStatsCardProps {
   purchasePrice?: number;
   searchTitle?: string;
   onViewAnalysis?: () => void;
+  selectedImage?: string; // Base64 image for Google searches
 }
 
 // Cross-platform ProgressBar
@@ -50,7 +53,7 @@ function isNonEmptyString(val: unknown): val is string {
   return typeof val === 'string' && val.trim() !== '';
 }
 
-export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onViewAnalysis }: SearchStatsCardProps) {
+export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onViewAnalysis, selectedImage }: SearchStatsCardProps) {
   const [locked, setLocked] = useState(false);
   const [haulId, setHaulId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -153,9 +156,9 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
       <View style={styles.header}>
         <Text style={[styles.title, { color: cardText }]}>Market Snapshot</Text>
         {(stats.data_source || stats.source) && (
-          <View style={[styles.sourceBadge, { backgroundColor: stats.data_source === 'ai_web_search' ? cardTint + '20' : cardTint + '20' }]}>
-            <Text style={[styles.sourceText, { color: stats.data_source === 'ai_web_search' ? cardTint : cardTint }]}>
-              {stats.data_source === 'ai_web_search' ? 'Live Market Data' : 'Historical Sales Data'}
+          <View style={[styles.sourceBadge, { backgroundColor: (stats.data_source === 'ai_web_search' || stats.data_source === 'ebay_current_listings') ? cardTint + '20' : cardTint + '20' }]}>
+            <Text style={[styles.sourceText, { color: (stats.data_source === 'ai_web_search' || stats.data_source === 'ebay_current_listings') ? cardTint : cardTint }]}>
+              {(stats.data_source === 'ai_web_search' || stats.data_source === 'ebay_current_listings') ? 'Live Market Data' : 'Historical Sales Data'}
             </Text>
           </View>
         )}
@@ -262,9 +265,13 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
         {stats.market_activity && (
           <View style={styles.statItem}>
             <TrendingUp size={20} color={cardTint} />
-            <View style={{ marginLeft: 8 }}>
-              <Text style={[styles.statValue, { color: cardText }]}>{stats.market_activity}</Text>
-              <Text style={[styles.statLabel, { color: cardSubtle }]}>Activity</Text>
+            <View style={{ marginLeft: 8, flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.statValue, { color: cardText }]}>{stats.market_activity}</Text>
+                <Text style={[styles.statLabel, { color: cardSubtle }]}>Activity</Text>
+              </View>
+              
+
             </View>
           </View>
         )}
@@ -302,8 +309,54 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
             </Text>
           </View>
         )} */}
+
+                      {/* Google search buttons - appear when image search is active */}
+                      {selectedImage && (
+                <View style={{ flexDirection: 'column', gap: 4 }}>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      try {
+                        const ebayResults = await ebaySearchByImage({
+                          image: selectedImage,
+                          limit: 1
+                        });
+                        
+                        if (ebayResults.itemSummaries && ebayResults.itemSummaries.length > 0) {
+                          const identifiedTitle = ebayResults.itemSummaries[0].title;
+                          const simplifiedTitle = await simplifyItemTitle(identifiedTitle);
+                          const shoppingUrl = generateGoogleShoppingSearchURL(simplifiedTitle);
+                          Linking.openURL(shoppingUrl);
+                        } else {
+                          Alert.alert('Error', 'Could not identify the item. Please try again.');
+                        }
+                      } catch (err) {
+                        Alert.alert('Error', 'Failed to identify item for Google Shopping search.');
+                      }
+                    }}
+                    style={[styles.googleButton, { borderColor: cardSubtle }]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <ShoppingBag size={12} color={cardSubtle} />
+                      <Text style={[styles.googleButtonText, { color: cardSubtle }]}>Google Shop</Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => {
+                      const lensUrl = generateGoogleLensURL();
+                      Linking.openURL(lensUrl);
+                    }}
+                    style={[styles.googleButton, { borderColor: cardSubtle }]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Camera size={12} color={cardSubtle} />
+                      <Text style={[styles.googleButtonText, { color: cardSubtle }]}>Google Lens</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              )}
         
-        {stats.data_source === 'ai_web_search' && (
+        {(stats.data_source === 'ai_web_search' || stats.data_source === 'ebay_current_listings') && (
           <View style={[styles.aiNoteContainer, { backgroundColor: backgroundColor }]}>
             <Text style={[styles.aiNoteText, { color: cardSubtle }]}>
               💡 Showing current listing prices from multiple sources - not historical sales
@@ -311,7 +364,7 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
           </View>
         )}
         
-        {stats.data_source === 'ai_web_search' && stats.market_summary && onViewAnalysis && (
+        {/* {stats.data_source === 'ai_web_search' && stats.market_summary && onViewAnalysis && (
           <TouchableOpacity 
             style={[styles.analysisButton]} 
             onPress={onViewAnalysis}
@@ -321,7 +374,7 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
             </Text>
             <ChevronRight size={20} color={cardTint} />
           </TouchableOpacity>
-        )}
+        )} */}
       </View>
 
       {/* <View style={styles.scoreRow}>
@@ -491,5 +544,19 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
     marginRight: 8,
+  },
+  googleButton: {
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#aaa',
+    borderRadius: 4,
+    minWidth: 80,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  googleButtonText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 10,
   },
 }); 

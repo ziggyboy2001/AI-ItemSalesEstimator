@@ -1,13 +1,11 @@
 // Old eBay API logic removed. Use services/ebayCompletedApi.ts for new API integration.
 
 import { Buffer } from 'buffer';
+import { OPENAI_API_KEY, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET } from '@env';
 
-// Update URLs to use sandbox endpoints
-const EBAY_API_URL = 'https://api.sandbox.ebay.com/buy/browse/v1';
-const EBAY_AUTH_URL = 'https://api.sandbox.ebay.com/identity/v1/oauth2/token';
-
-const EBAY_CLIENT_ID = 'KeithZah-bidpeek-SBX-aa6d579f2-l5df5368';
-const EBAY_CLIENT_SECRET = 'SBX-a6d579f203c1-a171-4a02-a4aa-6157';
+// Update URLs to use production endpoints
+const EBAY_API_URL = 'https://api.ebay.com/buy/browse/v1';
+const EBAY_AUTH_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
 
 // Add fetch timeout helper
 const fetchWithTimeout = async (url: string, options: RequestInit, timeout = 30000) => {
@@ -73,23 +71,97 @@ export interface EbayImageSearchRequest {
   offset?: number;
 }
 
+// Updated interface to match actual eBay API response
 export interface EbayImageSearchResponse {
+  href?: string;
+  total: number;
+  limit: number;
+  offset: number;
+  next?: string;
+  prev?: string;
   itemSummaries: {
     itemId: string;
     title: string;
     price: {
       value: string;
       currency: string;
+      convertedFromCurrency?: string;
+      convertedFromValue?: string;
     };
-    image: {
+    image?: {
       imageUrl: string;
+      height?: number;
+      width?: number;
     };
-    condition: string;
+    additionalImages?: Array<{
+      imageUrl: string;
+      height?: number;
+      width?: number;
+    }>;
+    condition?: string;
+    conditionId?: string;
     itemWebUrl: string;
+    itemAffiliateWebUrl?: string;
+    categories?: Array<{
+      categoryId: string;
+      categoryName: string;
+    }>;
+    seller?: {
+      username: string;
+      feedbackPercentage?: string;
+      feedbackScore?: number;
+    };
+    shippingOptions?: Array<{
+      shippingCost?: {
+        value: string;
+        currency: string;
+      };
+      shippingCostType?: string;
+    }>;
+    buyingOptions?: string[];
+    currentBidPrice?: {
+      value: string;
+      currency: string;
+    };
+    bidCount?: number;
+    marketingPrice?: {
+      originalPrice?: {
+        value: string;
+        currency: string;
+      };
+      discountPercentage?: string;
+    };
   }[];
-  total: number;
-  limit: number;
-  offset: number;
+  refinement?: {
+    aspectDistributions?: Array<{
+      localizedAspectName: string;
+      aspectValueDistributions: Array<{
+        localizedAspectValue: string;
+        matchCount: number;
+        refinementHref: string;
+      }>;
+    }>;
+    categoryDistributions?: Array<{
+      categoryId: string;
+      categoryName: string;
+      matchCount: number;
+      refinementHref: string;
+    }>;
+    conditionDistributions?: Array<{
+      condition: string;
+      conditionId: string;
+      matchCount: number;
+      refinementHref: string;
+    }>;
+    dominantCategoryId?: string;
+  };
+  warnings?: Array<{
+    category: string;
+    domain: string;
+    errorId: number;
+    message: string;
+    longMessage: string;
+  }>;
 }
 
 async function getEbayAuthToken(): Promise<string> {
@@ -97,7 +169,7 @@ async function getEbayAuthToken(): Promise<string> {
   try {
     const credentials = Buffer.from(`${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}`).toString('base64');
     
-    console.log('Making auth request to eBay sandbox...');
+    console.log('Making auth request to eBay production...');
     console.log('Using Client ID:', EBAY_CLIENT_ID.substring(0, 10) + '...');
     
     const authBody = 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope';
@@ -206,7 +278,7 @@ function validateImageData(image: string): void {
 }
 
 export async function searchByImage(request: EbayImageSearchRequest): Promise<EbayImageSearchResponse> {
-  console.log('🔍 Starting eBay sandbox image search...');
+  console.log('🔍 Starting eBay production image search...');
   console.log('Request params:', {
     categoryIds: request.category_ids,
     limit: request.limit,
@@ -334,6 +406,207 @@ export async function searchByImage(request: EbayImageSearchRequest): Promise<Eb
       error
     );
   }
+}
+
+// Helper function to calculate stats from eBay image search results
+export function calculateEbayImageSearchStats(response: EbayImageSearchResponse, query: string = 'Image Search') {
+  if (!response.itemSummaries || response.itemSummaries.length === 0) {
+    return null;
+  }
+
+  const items = response.itemSummaries;
+  
+  // Extract prices (handle both current bid and buy-it-now prices)
+  const prices: number[] = items.map(item => {
+    if (item.currentBidPrice) {
+      return parseFloat(item.currentBidPrice.value);
+    }
+    return parseFloat(item.price.value);
+  }).filter(price => !isNaN(price) && price > 0);
+
+  if (prices.length === 0) {
+    return null;
+  }
+
+  // Calculate basic stats
+  const sortedPrices = [...prices].sort((a, b) => a - b);
+  const min_price = Math.min(...prices);
+  const max_price = Math.max(...prices);
+  const average_price = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const median_price = sortedPrices[Math.floor(sortedPrices.length / 2)];
+  
+  // Standard deviation for outlier detection
+  const variance = prices.reduce((a, b) => a + Math.pow(b - average_price, 2), 0) / prices.length;
+  const stddev = Math.sqrt(variance);
+
+  // Market activity based on total results
+  let market_activity = 'Low';
+  if (response.total > 100) market_activity = 'High';
+  else if (response.total > 50) market_activity = 'Medium';
+
+  // Match quality based on number of results and price consistency
+  const priceConsistency = stddev / average_price; // Lower is more consistent
+  let match_quality = Math.round(
+    Math.min(100, Math.max(10, 
+      (response.total / 10) * 10 + // More results = better match
+      (1 - Math.min(1, priceConsistency)) * 50 // Price consistency
+    ))
+  );
+
+  // Resaleability score based on market activity and price range
+  let resaleability_score = Math.round(
+    Math.min(99, Math.max(1,
+      (response.total / 20) * 30 + // Market depth
+      (1 - Math.min(1, priceConsistency)) * 40 + // Price stability
+      Math.min(29, response.itemSummaries.length) // Number of current listings
+    ))
+  );
+
+  return {
+    average_price,
+    median_price,
+    min_price,
+    max_price,
+    results: response.total,
+    returned_items: response.itemSummaries.length,
+    strategy_used: 'ebay_image_search',
+    original_term: query,
+    source: 'eBay Image Search',
+    data_source: 'ebay_current_listings',
+    market_activity,
+    match_quality,
+    resaleability_score,
+    price_consistency: Math.round((1 - priceConsistency) * 100), // Higher is more consistent
+    dominant_category: response.refinement?.dominantCategoryId,
+    category_breakdown: response.refinement?.categoryDistributions?.slice(0, 5).map(cat => ({
+      name: cat.categoryName,
+      count: cat.matchCount
+    })),
+    condition_breakdown: response.refinement?.conditionDistributions?.slice(0, 5).map(cond => ({
+      condition: cond.condition,
+      count: cond.matchCount
+    }))
+  };
+}
+
+// Simple OpenAI title simplification for better search results
+async function simplifyTitleWithAI(title: string): Promise<string> {
+  if (!title || !OPENAI_API_KEY) return title;
+  
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', // Cheapest model
+        messages: [
+          {
+            role: 'user',
+            content: `Simplify this product title for search: "${title}"\n\nReturn only the essential product name (brand + main item) in 2-5 words.`
+          }
+        ],
+        max_tokens: 20, // Keep very short to minimize cost
+        temperature: 0, // Consistent results
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('OpenAI simplification failed:', response.status);
+      return title; // Fallback to original
+    }
+
+    const data = await response.json();
+    const simplified = data.choices?.[0]?.message?.content?.trim();
+    
+    if (simplified && simplified.length > 0 && simplified.length < title.length) {
+      console.log('🤖 AI simplified:', title, '→', simplified);
+      return simplified;
+    }
+    
+    return title; // Fallback if no improvement
+  } catch (error) {
+    console.error('Title simplification error:', error);
+    return title; // Always fallback to original
+  }
+}
+
+// Updated helper function that uses AI if available, falls back to rules
+export async function simplifyItemTitle(title: string): Promise<string> {
+  if (!title) return title;
+  
+  // Try AI first for best results
+  const aiSimplified = await simplifyTitleWithAI(title);
+  if (aiSimplified !== title) {
+    return aiSimplified;
+  }
+  
+  // Fallback to rule-based if AI fails or unavailable
+  let simplified = title;
+  
+  // Convert to title case for consistency
+  simplified = simplified.toLowerCase();
+  
+  // Remove common measurements and specifications
+  simplified = simplified.replace(/\b\d+(\.\d+)?\s*(oz|ml|cm|mm|inch|inches|in|ft|feet|lbs?|kg|g|grams?|ounces?|pounds?|pint|pints|quart|quarts|gallon|gallons|cup|cups)\b/gi, '');
+  
+  // Remove dimensions (e.g., "12 x 8 x 4", "5.5" x 3"")
+  simplified = simplified.replace(/\b\d+(\.\d+)?\s*[x×]\s*\d+(\.\d+)?(\s*[x×]\s*\d+(\.\d+)?)?\s*(in|inch|inches|cm|mm)?\b/gi, '');
+  
+  // Remove quantities and sets (keep brand but remove quantity)
+  simplified = simplified.replace(/\b(set of|pack of|lot of|case of|box of)\s*\d+\b/gi, 'set');
+  simplified = simplified.replace(/\b\d+\s*(piece|pc|pcs|pieces?|count|pk|pack)\b/gi, '');
+  
+  // Remove marketing/condition terms
+  const marketingTerms = [
+    'brand new', 'new', 'used', 'pre-owned', 'vintage', 'antique', 'rare', 'limited edition',
+    'premium', 'deluxe', 'professional', 'commercial grade', 'heavy duty', 'high quality',
+    'authentic', 'genuine', 'original', 'replacement', 'compatible', 'universal',
+    'never used', 'mint condition', 'like new', 'excellent condition', 'good condition',
+    'working', 'tested', 'guaranteed', 'warranty', 'certified', 'approved',
+    'fast shipping', 'free shipping', 'same day shipping', 'priority shipping'
+  ];
+  
+  marketingTerms.forEach(term => {
+    const regex = new RegExp(`\\b${term}\\b`, 'gi');
+    simplified = simplified.replace(regex, '');
+  });
+  
+  // Remove year ranges and model years (but keep if it's part of model name)
+  simplified = simplified.replace(/\b(19|20)\d{2}(-|\s+to\s+|(19|20)\d{2})?\b/g, '');
+  
+  // Remove common filler words
+  const fillerWords = [
+    'for', 'with', 'and', 'or', 'the', 'a', 'an', 'in', 'on', 'at', 'by', 'of',
+    'very', 'super', 'extra', 'special', 'amazing', 'perfect', 'great', 'best',
+    'top', 'quality', 'style', 'design', 'beautiful', 'stunning', 'gorgeous',
+    'must have', 'hot item', 'popular', 'trending', 'classic', 'modern'
+  ];
+  
+  // Only remove filler words if they're not essential to the product identity
+  fillerWords.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b(?!\\s+(brand|model|series|collection))`, 'gi');
+    simplified = simplified.replace(regex, ' ');
+  });
+  
+  // Remove excessive punctuation and clean up
+  simplified = simplified.replace(/[!@#$%^&*()_+=\[\]{}|\\:";'<>?,.]+/g, ' ');
+  simplified = simplified.replace(/\s+/g, ' '); // Multiple spaces to single
+  simplified = simplified.trim();
+  
+  // Capitalize first letter of each word
+  simplified = simplified.replace(/\b\w/g, letter => letter.toUpperCase());
+  
+  // If we stripped too much, return a fallback
+  if (simplified.length < 10 && title.length > 20) {
+    // Take first few meaningful words from original
+    const words = title.split(/\s+/).slice(0, 4);
+    simplified = words.join(' ');
+  }
+  
+  return simplified;
 }
 
 export {};
