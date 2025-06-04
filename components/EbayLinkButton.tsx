@@ -26,6 +26,11 @@ export default function EbayLinkButton({
     const campaignId = process.env.EXPO_PUBLIC_EBAY_CAMPAIGN_ID;
     const affiliateEnabled = process.env.EXPO_PUBLIC_EBAY_AFFILIATE_ENABLED === 'true';
 
+    console.log('🔧 Affiliate Setup Check:');
+    console.log('  Partner ID:', partnerId ? `${partnerId.substring(0, 4)}...` : 'MISSING');
+    console.log('  Campaign ID:', campaignId || 'MISSING');
+    console.log('  Enabled:', affiliateEnabled);
+
     // If affiliate is disabled or credentials missing, return original URL
     if (!affiliateEnabled || !partnerId || !campaignId) {
       console.log('🔗 Affiliate disabled or credentials missing, using direct URL');
@@ -54,6 +59,7 @@ export default function EbayLinkButton({
       `kw=lg`;
 
     console.log('🎯 Built affiliate URL for item:', extractedItemId);
+    console.log('🔗 Affiliate URL preview:', affiliateUrl.substring(0, 100) + '...');
     return affiliateUrl;
   };
 

@@ -479,26 +479,26 @@ export default function ItemDetailScreen() {
                 <View style={styles.featuresGrid}>
                   {item.topRatedBuyingExperience && (
                     <View style={[styles.featureBadge, { backgroundColor: successColor }]}>
-                      <Star size={12} color="#fff" />
+                      <Star size={12} color="#000000" />
                       <Text style={styles.featureBadgeText}>Top Rated</Text>
                     </View>
                   )}
                   {item.buyingOptions?.includes('BEST_OFFER') && (
                     <View style={[styles.featureBadge, { backgroundColor: tintColor }]}>
-                      <DollarSign size={12} color="#fff" />
+                      <DollarSign size={12} color="#000000" />
                       <Text style={styles.featureBadgeText}>Best Offer</Text>
                     </View>
                   )}
                   {item.availableCoupons && (
-                    <View style={[styles.featureBadge, { backgroundColor: '#FF6B35' }]}>
+                    <View style={[styles.featureBadge, { backgroundColor: '##FF69B4' }]}>
                       <Tag size={12} color="#fff" />
                       <Text style={styles.featureBadgeText}>Coupons</Text>
                     </View>
                   )}
                   {item.shippingOptions?.some((option: any) => option.shippingCost?.value === '0.00') && (
-                    <View style={[styles.featureBadge, { backgroundColor: '#28A745' }]}>
+                    <View style={[styles.featureBadge, { backgroundColor: '#8338ec' }]}>
                       <TrendingUp size={12} color="#fff" />
-                      <Text style={styles.featureBadgeText}>Free Ship</Text>
+                      <Text style={[styles.featureBadgeText, { color: '#fff' }]}>Free Ship</Text>
                     </View>
                   )}
                 </View>

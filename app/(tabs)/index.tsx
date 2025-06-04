@@ -1096,7 +1096,7 @@ export default function SearchScreen() {
           onPress={activeTab === 'sold' ? handleIdentifyItem : handleImageSearchFlow}
         >
           <Text style={[styles.searchButtonText, { color: tintColor }]}>
-            {activeTab === 'sold' ? 'Identify item by image' : 'Search with image'}
+            {activeTab === 'sold' ? 'Identify item by image with AI' : 'Search with image'}
           </Text>
         </TouchableOpacity>
 
