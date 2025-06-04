@@ -1,11 +1,10 @@
-import React from 'react';
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, TextInput, FlatList, ActivityIndicator, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Modal, Button, Alert, Linking, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RefreshControl } from 'react-native-gesture-handler';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
-import { Search as SearchIcon, X, Camera, ImageIcon } from 'lucide-react-native';
+import { Search as SearchIcon, X, Camera, ImageIcon, RefreshCw, TrendingUp, AlertCircle, Zap, Sparkles, User, ChevronRight, ExternalLink } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { differenceInDays } from 'date-fns';
 import Markdown from 'react-native-markdown-display';
@@ -25,6 +24,7 @@ import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { searchWebWithOpenAI, searchWebWithChatGPT, simpleAIWebSearch, searchByImage } from '@/services/aiWebSearch';
 import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
 import { searchByImage as ebaySearchByImage, EbayError, EbayErrorType, calculateEbayImageSearchStats, simplifyItemTitle } from '@/services/ebayApi';
+import { searchEbayListings, calculateEbayBrowseStats, EbayBrowseError, EbayBrowseErrorType } from '@/services/ebayBrowseApi';
 
 interface SearchResult {
   itemId: string;
@@ -141,6 +141,15 @@ function mapEbayItemToSearchResult(item: any, query: string): SearchResult {
     source: item.source_website || 'ebay',
     sourceWebsite: item.source_website,
     items: [item],
+    // Include current listing specific data at the top level
+    seller: item.seller,
+    additionalImages: item.additionalImages,
+    topRatedBuyingExperience: item.topRatedBuyingExperience,
+    buyingOptions: item.buyingOptions,
+    itemOriginDate: item.itemOriginDate,
+    itemLocation: item.itemLocation,
+    shippingOptions: item.shippingOptions,
+    availableCoupons: item.availableCoupons,
   };
 }
 
@@ -191,125 +200,161 @@ export default function SearchScreen() {
   const errorColor = useThemeColor('error');
   const cardColor = useThemeColor('background');
 
-  const handleTestAISearch = useCallback(async (query = searchQuery) => {
+  const handleEbayBrowseSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim()) return;
     setIsLoading(true);
     setListingsError('');
+    
     try {
-      console.log('Testing AI Web Search directly for:', query);
-      console.log('Trying new OpenAI Responses API with web search...');
-      let aiResult = await searchWebWithOpenAI(query);
+      console.log('🔍 Using eBay Browse API for current listings search:', query);
       
-      // Fallback to ChatGPT-style search if Responses API fails
-      if (!aiResult.success) {
-        console.log('OpenAI Responses API failed, trying ChatGPT-style search...');
-        aiResult = await searchWebWithChatGPT(query);
-      }
+      // Search eBay current listings using Browse API
+      const ebayResponse = await searchEbayListings({
+        q: query,
+        limit: 50, // Get up to 50 results
+        sort: 'newlyListed', // Show newest listings first
+        fieldgroups: 'MATCHING_ITEMS', // Get full item details
+      });
       
-      // Fallback to old method if new one fails
-      if (!aiResult.success) {
-        console.log('OpenAI web search failed, trying fallback method...');
-        aiResult = await simpleAIWebSearch(query);
-      }
+      console.log('✅ eBay Browse API response received:', {
+        total: ebayResponse.total,
+        returned: ebayResponse.itemSummaries?.length || 0
+      });
       
-      console.log('=== AI SEARCH RESULT RECEIVED ===');
-      console.log('AI Result Success:', aiResult.success);
-      console.log('AI Result Products:', aiResult.products);
-      console.log('AI Result Summary:', aiResult.summary);
-      console.log('=== END AI SEARCH RESULT ===');
-      
-      if (!aiResult.success) {
-        setListingsError(aiResult.summary || 'AI web search failed');
+      if (!ebayResponse.itemSummaries || ebayResponse.itemSummaries.length === 0) {
+        setListingsError('No current listings found for this search.');
         setListingsResults([]);
         setListingsStats(null);
         setListingsItemFlags([]);
+        
+        // Still save to search history even if no results
+        const historyData = { 
+          query,
+          title: query,
+          searchType: 'current' as const,
+        };
+        await addToHistory(historyData);
         return;
       }
       
-      // Convert AI web search results to our expected format
-      const convertedItems = aiResult.products.map((product, index) => {
-        console.log(`=== CONVERTING PRODUCT ${index + 1} ===`);
-        console.log('Original Product:', JSON.stringify(product, null, 2));
-        
-        const converted = {
-          item_id: product.link || `ai-test-${Date.now()}-${Math.random()}`,
-          title: product.title,
-          sale_price: product.price || 0,
-          image_url: undefined, // Don't use AI search images as they're often missing/broken
-          condition: product.condition || 'Unknown',
-          date_sold: new Date().toISOString(),
-          link: product.link,
-          buying_format: 'Store Listing',
-          shipping_price: 0,
-          source_website: product.source, // Preserve the source website
+      // Convert eBay Browse API results to our expected format
+      const convertedItems = ebayResponse.itemSummaries.map((item) => {
+        return {
+          item_id: item.itemId,
+          title: item.title,
+          sale_price: parseFloat(item.price.value) || 0,
+          image_url: item.image?.imageUrl,
+          condition: item.condition || 'Unknown',
+          date_sold: item.itemCreationDate || new Date().toISOString(),
+          link: item.itemWebUrl,
+          buying_format: item.buyingOptions?.[0] || 'Current Listing',
+          shipping_price: item.shippingOptions?.[0]?.shippingCost ? parseFloat(item.shippingOptions[0].shippingCost.value) : 0,
+          source_website: 'ebay.com',
+          // Current listings specific data
+          seller: item.seller,
+          additionalImages: item.additionalImages,
+          topRatedBuyingExperience: item.topRatedBuyingExperience,
+          buyingOptions: item.buyingOptions,
+          itemOriginDate: item.itemOriginDate,
+          itemLocation: item.itemLocation,
+          shippingOptions: item.shippingOptions,
+          availableCoupons: item.availableCoupons,
         };
-        
-        console.log('Converted Item:', JSON.stringify(converted, null, 2));
-        console.log('Source Website:', product.source);
-        console.log('=== END CONVERTING PRODUCT ===');
-        
-        return converted;
       });
-      
-      console.log('=== ALL CONVERTED ITEMS ===');
-      console.log('Converted Items Count:', convertedItems.length);
-      console.log('All Converted Items:', JSON.stringify(convertedItems, null, 2));
-      console.log('=== END ALL CONVERTED ITEMS ===');
       
       const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, query));
       
-      console.log('=== MAPPED RESULTS ===');
-      console.log('Mapped Results Count:', mappedResults.length);
-      console.log('Mapped Results:', JSON.stringify(mappedResults, null, 2));
-      console.log('=== END MAPPED RESULTS ===');
-      
-      // Create stats from AI web search results
-      const prices = aiResult.products.map(p => p.price).filter(p => p > 0);
-      const stats = {
-        average_price: prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : 0,
-        median_price: prices.length > 0 ? prices.sort((a, b) => a - b)[Math.floor(prices.length / 2)] : 0,
-        min_price: prices.length > 0 ? Math.min(...prices) : 0,
-        max_price: prices.length > 0 ? Math.max(...prices) : 0,
-        results: aiResult.products.length,
-        strategy_used: 'ai_web_search_test',
-        original_term: query,
-        source: 'AI Web Search (Test Mode)',
-        market_summary: aiResult.summary,
-        data_source: 'ai_web_search',
-        resaleability_score: 0, // Not applicable for AI search
-        match_quality: 0, // Not applicable for AI search
-        market_activity: aiResult.products.length > 10 ? 'High' : aiResult.products.length > 3 ? 'Medium' : 'Low',
-      };
-      
-      console.log('=== FINAL STATS ===');
-      console.log('Stats:', JSON.stringify(stats, null, 2));
-      console.log('=== END FINAL STATS ===');
+      // Calculate stats from eBay Browse API response
+      const stats = calculateEbayBrowseStats(ebayResponse, query);
       
       setListingsStats(stats);
       setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
       setListingsResults(mappedResults);
       addRecentSearch(query);
+
+      // Save to search history for current listings - IMMEDIATE UPDATE
+      if (mappedResults.length > 0) {
+        const firstResult = mappedResults[0];
+        
+        // Save the complete SearchResult object with all current listing data
+        const completeHistoryData = {
+          ...firstResult, // Include ALL SearchResult data
+          query,
+          searchType: 'current' as const,
+          // Ensure price is from stats for consistency
+          price: stats?.average_price || firstResult.price,
+        };
+        
+        await addToHistory(completeHistoryData);
+        console.log('✅ Search history updated with complete current listing data');
+      } else {
+        const historyData = { 
+          query,
+          title: query,
+          searchType: 'current' as const,
+        };
+        await addToHistory(historyData);
+      }
       
-      console.log('AI Web Search Test Results:', {
-        products: aiResult.products.length,
+      console.log('✅ eBay Browse Search Results:', {
+        items: mappedResults.length,
+        total_available: ebayResponse.total,
         average_price: stats.average_price,
-        summary: aiResult.summary
+        summary: stats.market_summary,
+        stats_results_count: stats.results,
+        ebay_response_items: ebayResponse.itemSummaries?.length
       });
       
     } catch (err) {
-      setListingsError('AI web search test failed. Check console for details.');
-      console.error('AI web search test error:', err);
+      console.error('❌ eBay Browse search error:', err);
+      
+      let errorMessage = 'Search failed. Please try again.';
+      
+      if (err instanceof EbayBrowseError) {
+        switch (err.type) {
+          case EbayBrowseErrorType.NO_RESULTS:
+            errorMessage = 'No current listings found for this search. Try different keywords.';
+            break;
+          case EbayBrowseErrorType.RATE_LIMIT:
+            errorMessage = 'Too many requests. Please wait a moment and try again.';
+            break;
+          case EbayBrowseErrorType.NETWORK_ERROR:
+            errorMessage = 'Network error. Check your connection and try again.';
+            break;
+          case EbayBrowseErrorType.AUTH_FAILED:
+            errorMessage = 'Authentication failed. Please try again later.';
+            break;
+          default:
+            errorMessage = err.message || 'Search failed. Please try again.';
+        }
+      }
+      
+      setListingsError(errorMessage);
+      setListingsResults([]);
+      setListingsStats(null);
+      setListingsItemFlags([]);
+      
+      // Save failed search to history
+      const historyData = { 
+        query,
+        title: query,
+        searchType: 'current' as const,
+      };
+      await addToHistory(historyData);
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, addRecentSearch]);
+  }, [searchQuery, addRecentSearch, addToHistory]);
 
   const handleSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim() && !selectedImage) return;
     
-    // If searching by image, directly do AI Web Search (Google options available as inline buttons)
+    setIsLoading(true);
+    
+    // Priority logic: Image first, then text fallback for current listings
     if (selectedImage && isImageSearch) {
-      setIsLoading(true);
+      console.log('🔍 Using image search (priority over text)...');
+      
       try {
         console.log('🔍 Using eBay Image Search for identification and data population...');
         const ebayResults = await ebaySearchByImage({
@@ -358,37 +403,76 @@ export default function SearchScreen() {
           // Set the search query (use original title for Current Listings)
           setSearchQuery(identifiedTitle);
           
+          // Save image search to history immediately
+          if (mappedResults.length > 0) {
+            const firstResult = mappedResults[0];
+            
+            // Save the complete SearchResult object with all current listing data
+            const completeHistoryData = {
+              ...firstResult, // Include ALL SearchResult data
+              query: identifiedTitle,
+              searchType: 'current' as const,
+              // Ensure price is from stats for consistency
+              price: stats?.average_price || firstResult.price,
+            };
+            
+            await addToHistory(completeHistoryData);
+            console.log('✅ Image search history updated with complete current listing data');
+          }
+          
+          setIsLoading(false);
+          return; // Success - exit early
         } else {
-          if (activeTab === 'sold') {
-            setSoldError('Could not identify item from image. Please try again.');
+          console.log('❌ Image search returned no results');
+          // If image search fails and we have text, fallback to text search
+          if (query.trim()) {
+            console.log('🔄 Falling back to text search...');
+            // Continue to text search below
           } else {
-            setListingsError('Could not identify item from image. Please try again.');
+            if (activeTab === 'sold') {
+              setSoldError('Could not identify item from image. Please try again or add a text description.');
+            } else {
+              setListingsError('Could not identify item from image. Please try again or add a text description.');
+            }
+            setIsLoading(false);
+            return;
           }
         }
       } catch (err) {
-        console.error('Failed to identify item from image:', err);
-        if (activeTab === 'sold') {
-          setSoldError('Failed to identify item from image. Please try again.');
+        console.error('❌ Image search failed:', err);
+        // If image search fails and we have text, fallback to text search
+        if (query.trim()) {
+          console.log('🔄 Image search failed, falling back to text search...');
+          // Continue to text search below
         } else {
-          setListingsError('Failed to identify item from image. Please try again.');
+          if (activeTab === 'sold') {
+            setSoldError('Failed to identify item from image. Please try again or add a text description.');
+          } else {
+            setListingsError('Failed to identify item from image. Please try again or add a text description.');
+          }
+          setIsLoading(false);
+          return;
         }
       }
-      setIsLoading(false);
-      return;
     }
     
-    // Regular text search
-    setIsLoading(true);
-    
-    if (activeTab === 'listings') {
-      // AI Web Search for current listings
-      await handleTestAISearch(query);
-      return;
+    // Text search (either standalone or fallback from failed image search)
+    if (query.trim()) {
+      console.log('🔍 Using text search for:', query);
+      
+      if (activeTab === 'listings') {
+        // eBay Browse API for current listings
+        await handleEbayBrowseSearch(query);
+        return;
+      } else {
+        // eBay historical search for sold items
+        await handleEbaySearch(query);
+        return;
+      }
     }
     
-    // eBay search for historical sales
-    await handleEbaySearch(query);
-  }, [searchQuery, selectedImage, isImageSearch, activeTab]);
+    setIsLoading(false);
+  }, [searchQuery, selectedImage, isImageSearch, activeTab, handleEbayBrowseSearch, addToHistory]);
 
   // eBay search function (extracted from original handleSearch)
   const handleEbaySearch = useCallback(async (query: string) => {
@@ -427,20 +511,22 @@ export default function SearchScreen() {
       // Save to search history
       if (mappedResults.length > 0) {
         const firstResult = mappedResults[0];
-        const historyData = {
+        
+        // Save the complete SearchResult object with all sold item data  
+        const completeHistoryData = {
+          ...firstResult, // Include ALL SearchResult data
           query,
-          title: firstResult.title || query,
-          itemId: firstResult.itemId,
-          image: firstResult.image,
-          link: firstResult.url,
+          searchType: 'sold' as const,
+          // Ensure price is from stats for consistency
           price: enhancedStats?.average_price || firstResult.price,
         };
         
-        await addToHistory(historyData);
+        await addToHistory(completeHistoryData);
       } else {
         const historyData = { 
           query,
-          title: query 
+          title: query,
+          searchType: 'sold' as const,
         };
         await addToHistory(historyData);
       }
@@ -449,7 +535,8 @@ export default function SearchScreen() {
       console.error('Search error:', err);
       const historyData = { 
         query,
-        title: query 
+        title: query,
+        searchType: 'sold' as const,
       };
       await addToHistory(historyData);
     } finally {
@@ -492,20 +579,13 @@ export default function SearchScreen() {
   };
 
   const handleItemPress = (item: SearchResult) => {
-    // Add context flags to the item data
+    // Since current listing data is now directly on SearchResult object,
+    // we don't need to extract from nested items array
     const itemWithContext = {
       ...item,
       isAIResult: stats?.data_source === 'ai_web_search',
       sourceWebsite: item.sourceWebsite,
-      // Extract current listing data from nested items array if available
-      ...(item.items && item.items[0] && {
-        seller: (item.items[0] as any).seller,
-        additionalImages: (item.items[0] as any).additionalImages,
-        topRatedBuyingExperience: (item.items[0] as any).topRatedBuyingExperience,
-        buyingOptions: (item.items[0] as any).buyingOptions,
-        itemOriginDate: (item.items[0] as any).itemOriginDate,
-        shipping_price: (item.items[0] as any).shipping_price,
-      })
+      searchType: activeTab === 'listings' ? 'current' : 'sold', // Explicitly set search type
     };
     
     router.push({
@@ -516,7 +596,16 @@ export default function SearchScreen() {
 
   const handleRecentSearchPress = (query: string) => {
     setSearchQuery(query);
-    handleSearch(query);
+    // Clear any selected image when using recent search (text search only)
+    setSelectedImage(null);
+    setIsImageSearch(false);
+    
+    // Use the appropriate search method based on active tab
+    if (activeTab === 'listings') {
+      handleEbayBrowseSearch(query);
+    } else {
+      handleEbaySearch(query);
+    }
   };
 
   const handleIdentifyItem = async () => {
@@ -750,7 +839,7 @@ export default function SearchScreen() {
     
     if (activeTab === 'listings') {
       // For listings tab, run AI web search with the confirmed query
-      await handleTestAISearch(queryToUse);
+      await handleEbayBrowseSearch(queryToUse);
     } else {
       // For sold tab, run eBay historical search with the confirmed query
       await handleEbaySearch(queryToUse);
@@ -987,19 +1076,12 @@ export default function SearchScreen() {
                     purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined}
                     isAIResult={stats?.data_source === 'ai_web_search'}
                     sourceWebsite={typeof item.sourceWebsite === 'string' ? item.sourceWebsite : undefined}
-                    isCurrentListing={stats?.data_source === 'ebay_current_listings'}
+                    isCurrentListing={activeTab === 'listings'}
                   />
                 </Animated.View>
               );
             }}
             contentContainerStyle={styles.resultsContainer}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={handleRefresh}
-                tintColor={tintColor}
-              />
-            }
           />
         ) : searchQuery.trim() && !isLoading ? (
           <EmptyState
@@ -1030,10 +1112,10 @@ export default function SearchScreen() {
               </View>
             ) : (
               <View style={[styles.infoCard, { backgroundColor: cardColor, borderColor: tintColor }]}>
-                <Text style={[styles.infoTitle, { color: textColor }]}>🔍 AI-Powered Web Search</Text>
+                <Text style={[styles.infoTitle, { color: textColor }]}>🛒 Current eBay Listings</Text>
                 <Text style={[styles.infoText, { color: subtleText }]}>
-                  Search current listings using Perplexity's AI web search. Get real-time pricing from major retailers with verified citations. 
-                  <Text style={{ fontWeight: 'bold', color: tintColor }}> Tip:</Text> Always verify final prices on retailer websites before purchasing.
+                  Search live eBay listings to see current market pricing and availability. Find items you can buy right now with real seller information and shipping details.
+                  <Text style={{ fontWeight: 'bold', color: tintColor }}> Tip:</Text> Use image search for better results or add text descriptions for specific items.
                 </Text>
               </View>
             )}

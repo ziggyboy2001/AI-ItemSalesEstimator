@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, RefreshControl, Image, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
 import { Clock, ArrowRight, Trash2, ShoppingBag } from 'lucide-react-native';
 
@@ -18,7 +18,7 @@ export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { recentSearches, clearRecentSearches } = useRecentSearches();
-  const { searchHistory, isLoading, clearSearchHistory, removeFromHistory, refreshFromSupabase } = useSearchHistory();
+  const { searchHistory, isLoading, userId, clearSearchHistory, removeFromHistory, refreshFromSupabase } = useSearchHistory();
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
@@ -28,6 +28,22 @@ export default function HistoryScreen() {
   const borderColor = useThemeColor('tabIconDefault');
   const tintColor = useThemeColor('tint');
   const errorColor = useThemeColor('error');
+
+  // Trigger API call when user presses/focuses on the history tab
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadSearchHistory = async () => {
+        try {
+          console.log('📱 History tab focused - making API call');
+          await refreshFromSupabase();
+        } catch (error) {
+          console.error('Failed to refresh search history when tab focused:', error);
+        }
+      };
+      
+      loadSearchHistory();
+    }, [refreshFromSupabase])
+  );
 
   const handleSearchPress = (query: string) => {
     router.push({
@@ -42,9 +58,17 @@ export default function HistoryScreen() {
       handleSearchPress(item.query);
       return;
     }
+    
+    // Since we now store complete SearchResult objects, just pass the item as-is
+    // with the same structure as handleItemPress in main search
+    const itemWithContext = {
+      ...item,
+      searchType: item.searchType || 'sold', // Ensure searchType is preserved
+    };
+    
     router.push({
       pathname: `/item/${itemId}`,
-      params: { data: JSON.stringify(item) }
+      params: { data: JSON.stringify(itemWithContext) }
     });
   };
 
@@ -139,7 +163,26 @@ export default function HistoryScreen() {
                       )}
                     </View>
                     <View style={styles.historyItemText}>
-                      <Text style={[styles.historyItemQuery, { color: textColor }]}>{item.query}</Text>
+                      <View style={styles.queryRow}>
+                        <Text style={[styles.historyItemQuery, { color: textColor }]}>{item.query}</Text>
+                        <View style={[
+                          styles.searchTypeBadge, 
+                          { 
+                            backgroundColor: item.searchType === 'current' ? tintColor : subtleText + '40',
+                            borderColor: item.searchType === 'current' ? tintColor : subtleText,
+                          }
+                        ]}>
+                          <Text style={[
+                            styles.searchTypeBadgeText, 
+                            { 
+                              color: item.searchType === 'current' ? '#000000' : textColor,
+                              fontSize: 10,
+                            }
+                          ]}>
+                            {item.searchType === 'current' ? 'LISTING' : 'SOLD'}
+                          </Text>
+                        </View>
+                      </View>
                       {item.title && (
                         <Text style={[styles.historyItemTitle, { color: subtleText }]} numberOfLines={1}>
                           {item.title}
@@ -273,10 +316,29 @@ const styles = StyleSheet.create({
   },
   historyItemText: {
     flex: 1,
+    marginLeft: 12,
+  },
+  queryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
   historyItemQuery: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
+    flex: 1,
+    marginRight: 8,
+  },
+  searchTypeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  searchTypeBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 10,
   },
   historyItemTitle: {
     fontFamily: 'Inter_400Regular',

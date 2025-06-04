@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "EXPO_NO_TELEMETRY=1 npx expo start",
     "build:web": "npx expo export --platform web",
-    "lint": "npx expo lint"
+    "lint": "npx expo lint",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
@@ -48,7 +50,8 @@
     "react-native-svg": "^15.11.1",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "^0.20.0",
-    "react-native-webview": "13.13.5"
+    "react-native-webview": "13.13.5",
+    "expo-local-authentication": "~16.0.4"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

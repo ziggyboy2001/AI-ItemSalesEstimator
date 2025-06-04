@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollView, Alert, Image, ActivityIndicator, Share } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, TouchableOpacity, Switch, ScrollView, Alert, Image, ActivityIndicator, Share, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { ChevronRight, Info, Moon, User, Trash2, Bell, AlertTriangle } from 'lucide-react-native';
+import { ChevronRight, Info, Moon, User, Trash2, Bell, AlertTriangle, Fingerprint } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { useRecentSearches } from '@/hooks/useRecentSearches';
@@ -11,11 +13,15 @@ import { useThemeColor } from '@/constants/useThemeColor';
 import { useTheme } from '@/contexts/ThemeContext';
 import { supabase } from '@/services/supabaseClient';
 
+const BIOMETRICS_KEY = 'bidpeek_biometrics_enabled';
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   
   const { clearSearchHistory } = useSearchHistory();
   const { clearRecentSearches } = useRecentSearches();
@@ -33,6 +39,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     loadUserSettings();
+    checkBiometrics();
   }, []);
 
   const loadUserSettings = async () => {
@@ -53,6 +60,21 @@ export default function SettingsScreen() {
     }
   };
 
+  const checkBiometrics = async () => {
+    try {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      setBiometricsAvailable(compatible && enrolled);
+
+      if (compatible && enrolled) {
+        const enabled = await SecureStore.getItemAsync(BIOMETRICS_KEY);
+        setBiometricsEnabled(enabled === 'true');
+      }
+    } catch (error) {
+      console.error('Error checking biometrics:', error);
+    }
+  };
+
   const handleNotificationToggle = async (value: boolean) => {
     setNotifications(value);
     if (userId) {
@@ -64,6 +86,32 @@ export default function SettingsScreen() {
           dark_mode: isDarkMode,
           default_filters: {}
         });
+    }
+  };
+
+  const handleBiometricsToggle = async (value: boolean) => {
+    if (value) {
+      // Verify biometrics before enabling
+      try {
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Verify to enable biometric login',
+          fallbackLabel: 'Use password',
+          cancelLabel: 'Cancel',
+          disableDeviceFallback: false,
+        });
+
+        if (result.success) {
+          await SecureStore.setItemAsync(BIOMETRICS_KEY, 'true');
+          setBiometricsEnabled(true);
+        }
+      } catch (error) {
+        console.error('Error enabling biometrics:', error);
+        Alert.alert('Error', 'Failed to enable biometric login. Please try again.');
+      }
+    } else {
+      // Disable biometrics
+      await SecureStore.setItemAsync(BIOMETRICS_KEY, 'false');
+      setBiometricsEnabled(false);
     }
   };
 
@@ -501,6 +549,28 @@ Generated: ${new Date().toLocaleDateString()}
               isLast: true
             })}
           </View>
+
+          {/* Preferences Section */}
+          <Animated.View entering={FadeInDown.delay(200).duration(400)}>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>Preferences</Text>
+            <View style={[styles.section, { backgroundColor: cardColor }]}>
+              {biometricsAvailable && (
+                <View style={styles.settingRow}>
+                  <View style={styles.settingLeft}>
+                    <Fingerprint size={20} color={textColor} />
+                    <Text style={[styles.settingText, { color: textColor }]}>
+                      {Platform.OS === 'ios' ? 'Face ID/Touch ID' : 'Fingerprint'} Login
+                    </Text>
+                  </View>
+                  <Switch
+                    value={biometricsEnabled}
+                    onValueChange={handleBiometricsToggle}
+                    trackColor={{ false: subtleText, true: tintColor }}
+                  />
+                </View>
+              )}
+            </View>
+          </Animated.View>
         </Animated.View>
 
         <Text style={[styles.footer, { color: subtleText }]}>BidPeek © 2025</Text>
@@ -579,5 +649,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginVertical: 24,
+  },
+  sectionTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    marginTop: 24,
+    marginBottom: 8,
+    paddingLeft: 4,
+  },
+  section: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    marginBottom: 16,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  settingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  settingText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 16,
+    marginLeft: 12,
   },
 });

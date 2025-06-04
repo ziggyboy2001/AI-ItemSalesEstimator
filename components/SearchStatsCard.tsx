@@ -175,14 +175,15 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
             paddingHorizontal: 12,
             color: cardText,
             backgroundColor,
-            fontSize: 16,
+            fontSize: inputValue ? 16 : 14,
             marginRight: 8,
+            fontWeight: inputValue ? 'bold' : 'normal',
           }}
-          placeholder="Enter your purchase price"
+          placeholder="Enter asking price to see margins"
           placeholderTextColor={cardSubtle}
           keyboardType="numeric"
-          value={inputValue}
-          onChangeText={setInputValue}
+          value={inputValue ? `$${inputValue}` : ''}
+          onChangeText={(text) => setInputValue(text.replace('$', ''))}
         />
         <TouchableOpacity
           style={{

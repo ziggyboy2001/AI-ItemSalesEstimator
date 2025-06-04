@@ -14,6 +14,7 @@ interface HistoryItem {
   image?: string;
   link?: string;
   price?: number | string;
+  searchType?: 'sold' | 'current'; // Track if this was from sold or current listings search
   [key: string]: any;
 }
 
@@ -54,16 +55,33 @@ export function useSearchHistory() {
           setIsOnline(false);
           // Fallback to local storage
         } else if (data && data.length > 0) {
-          setSearchHistory(data.map((row: any) => ({
-            id: row.id,
-            query: row.query,
-            title: row.ai_keywords || row.title || '',
-            itemId: row.item_id || '',
-            timestamp: row.created_at,
-            image: row.image_url || '',
-            link: row.link || '',
-            price: row.price,
-          }) as HistoryItem));
+          setSearchHistory(data.map((row: any) => {
+            // If we have complete data from the data column, use it
+            if (row.data && typeof row.data === 'object') {
+              return {
+                id: row.id,
+                timestamp: row.created_at,
+                // Use all data from the data column (complete SearchResult object)
+                ...row.data,
+                // Ensure these core fields are always present from the individual columns
+                query: row.query,
+                searchType: row.search_type || 'sold',
+              } as HistoryItem;
+            } else {
+              // Fallback to individual columns for older entries
+              return {
+                id: row.id,
+                query: row.query,
+                title: row.ai_keywords || row.title || '',
+                itemId: row.item_id || '',
+                timestamp: row.created_at,
+                image: row.image_url || '',
+                link: row.link || '',
+                price: row.price,
+                searchType: row.search_type || 'sold',
+              } as HistoryItem;
+            }
+          }));
           setIsLoading(false);
           return;
         }
@@ -85,6 +103,14 @@ export function useSearchHistory() {
                   image: typeof item.image === 'string' ? item.image : '',
                   link: typeof item.link === 'string' ? item.link : '',
                   price: typeof item.price === 'number' || typeof item.price === 'string' ? item.price : undefined,
+                  searchType: item.searchType || 'sold', // Default to sold for backwards compatibility
+                  // Preserve all additional fields for current listings
+                  ...Object.keys(item).reduce((acc, key) => {
+                    if (!['id', 'query', 'title', 'itemId', 'timestamp', 'image', 'link', 'price', 'searchType'].includes(key)) {
+                      acc[key] = item[key];
+                    }
+                    return acc;
+                  }, {} as any)
                 }) as HistoryItem)
               : []
           );
@@ -115,30 +141,41 @@ export function useSearchHistory() {
   }, [searchHistory, isOnline]);
 
   // Add an item to search history
-  const addToHistory = useCallback(async (item: Omit<HistoryItem, 'id' | 'timestamp'> & { timestamp?: string }) => {
+  const addToHistory = useCallback(async (item: Omit<HistoryItem, 'id' | 'timestamp'> & { timestamp?: string; searchType?: 'sold' | 'current' }) => {
     // Prevent duplicate entries for the same query within the last hour
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const recentDuplicate = searchHistory.find(h => 
-      h.query.toLowerCase() === item.query.toLowerCase() && 
-      new Date(h.timestamp) > oneHourAgo
-    );
-    if (recentDuplicate) {
-      return; // Don't add recent duplicate
-    }
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     
-    const newItem: HistoryItem = {
-      query: (item as any).query || '',
-      title: (item as any).title || '',
-      itemId: (item as any).itemId || '',
-      image: (item as any).image || '',
-      link: (item as any).link || '',
-      price: (item as any).price,
-      timestamp: new Date().toISOString(),
-      id: '', // id will be set by Supabase or random below
+    const existingIndex = searchHistory.findIndex(existing => 
+      existing.query.toLowerCase() === item.query.toLowerCase() && 
+      new Date(existing.timestamp) > oneHourAgo
+    );
+    
+    if (existingIndex !== -1) {
+      // Remove the existing entry so it can be re-added at the top
+      setSearchHistory(prev => prev.filter((_, index) => index !== existingIndex));
+    }
+
+    const newItem = {
+      query: item.query,
+      title: item.title || '',
+      itemId: item.itemId || '',
+      image: item.image || '',
+      link: item.link || '',
+      price: item.price,
+      timestamp: item.timestamp || now.toISOString(),
+      searchType: item.searchType || 'sold', // Default to sold if not specified
+      // Preserve all additional fields for current listings (seller, additionalImages, etc.)
+      ...Object.keys(item).reduce((acc, key) => {
+        if (!['query', 'title', 'itemId', 'image', 'link', 'price', 'timestamp', 'searchType'].includes(key)) {
+          acc[key] = item[key];
+        }
+        return acc;
+      }, {} as any)
     };
     
     if (userId && isOnline) {
-      // Insert into Supabase
+      // Insert into Supabase with complete data object
       const { data, error } = await supabase
         .from('searches')
         .insert({
@@ -149,6 +186,8 @@ export function useSearchHistory() {
           image_url: newItem.image || '',
           link: newItem.link || '',
           price: newItem.price ? Number(newItem.price) : null,
+          search_type: newItem.searchType,
+          data: newItem, // Store the complete SearchResult object
         })
         .select();
       
@@ -163,6 +202,9 @@ export function useSearchHistory() {
             link: data[0].link,
             price: data[0].price,
             timestamp: data[0].created_at,
+            searchType: data[0].search_type || 'sold',
+            // Use complete data from the data column if available, otherwise fall back to individual fields
+            ...(data[0].data || {}),
           } as HistoryItem,
           ...prev
         ].slice(0, MAX_HISTORY_ITEMS));
@@ -172,13 +214,7 @@ export function useSearchHistory() {
         setSearchHistory(prev => [
           {
             id: Math.random().toString(36).substr(2, 9),
-            query: newItem.query,
-            title: newItem.title || '',
-            itemId: newItem.itemId,
-            image: newItem.image || '',
-            link: newItem.link || '',
-            price: newItem.price,
-            timestamp: newItem.timestamp,
+            ...newItem, // Use the complete newItem with all fields
           } as HistoryItem,
           ...prev
         ].slice(0, MAX_HISTORY_ITEMS));
@@ -188,13 +224,7 @@ export function useSearchHistory() {
       setSearchHistory(prev => [
         {
           id: Math.random().toString(36).substr(2, 9),
-          query: newItem.query,
-          title: newItem.title || '',
-          itemId: newItem.itemId,
-          image: newItem.image || '',
-          link: newItem.link || '',
-          price: newItem.price,
-          timestamp: newItem.timestamp,
+          ...newItem, // Use the complete newItem with all fields
         } as HistoryItem,
         ...prev
       ].slice(0, MAX_HISTORY_ITEMS));
@@ -236,33 +266,66 @@ export function useSearchHistory() {
 
   // Manual refresh from Supabase
   const refreshFromSupabase = useCallback(async () => {
+    console.log('🔄 Refreshing search history from Supabase...');
     if (userId && isOnline) {
-      const { data, error } = await supabase
-        .from('searches')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(MAX_HISTORY_ITEMS);
-      if (!error && data && data.length > 0) {
-        setSearchHistory(data.map((row: any) => ({
-          id: row.id,
-          query: row.query,
-          title: row.ai_keywords || row.title || '',
-          itemId: row.item_id || '',
-          timestamp: row.created_at,
-          image: row.image_url || '',
-          link: row.link || '',
-          price: row.price,
-        }) as HistoryItem));
-      } else if (error) {
-        console.error('Error refreshing search history:', error);
+      try {
+        const { data, error } = await supabase
+          .from('searches')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(MAX_HISTORY_ITEMS);
+          
+        if (error) {
+          console.error('❌ Error refreshing search history:', error);
+          return;
+        }
+        
+        if (data && data.length > 0) {
+          console.log(`✅ Refreshed ${data.length} search history items from Supabase`);
+          setSearchHistory(data.map((row: any) => {
+            // If we have complete data from the data column, use it
+            if (row.data && typeof row.data === 'object') {
+              return {
+                id: row.id,
+                timestamp: row.created_at,
+                // Use all data from the data column (complete SearchResult object)
+                ...row.data,
+                // Ensure these core fields are always present from the individual columns
+                query: row.query,
+                searchType: row.search_type || 'sold',
+              } as HistoryItem;
+            } else {
+              // Fallback to individual columns for older entries
+              return {
+                id: row.id,
+                query: row.query,
+                title: row.ai_keywords || row.title || '',
+                itemId: row.item_id || '',
+                timestamp: row.created_at,
+                image: row.image_url || '',
+                link: row.link || '',
+                price: row.price,
+                searchType: row.search_type || 'sold',
+              } as HistoryItem;
+            }
+          }));
+        } else {
+          console.log('✅ No search history found in Supabase');
+          setSearchHistory([]);
+        }
+      } catch (error) {
+        console.error('❌ Error refreshing search history:', error);
       }
+    } else {
+      console.log('⚠️ Cannot refresh: user not logged in or offline');
     }
   }, [userId, isOnline]);
 
   return { 
     searchHistory, 
     isLoading,
+    userId,
     addToHistory, 
     removeFromHistory, 
     clearSearchHistory, 

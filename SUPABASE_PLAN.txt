@@ -13,6 +13,7 @@
 - ai_excluded: text
 - results_count: int
 - created_at: timestamptz
+- search_type: VARCHAR(10) DEFAULT 'sold' CHECK (search_type IN ('sold', 'current'))
 
 ### B. saved_items
 - id: uuid (pk)
@@ -68,4 +69,20 @@
 
 ---
 
-**This file is a living checklist. Update as you go!** 
+**This file is a living checklist. Update as you go!**
+
+## Database Schema Updates Required
+
+### Search History Schema Update
+The `searches` table needs a new column to track search type:
+
+```sql
+ALTER TABLE searches 
+ADD COLUMN search_type VARCHAR(10) DEFAULT 'sold' CHECK (search_type IN ('sold', 'current'));
+```
+
+This column tracks whether a search was performed on:
+- 'sold' - Historical eBay completed listings
+- 'current' - Current marketplace listings (AI web search)
+
+This ensures that when users view items from their search history, the correct UI and data format is displayed. 

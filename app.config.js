@@ -24,6 +24,7 @@ export default {
         NSPhotoLibraryUsageDescription:
           'This app needs access to your photo library to select existing photos of items for price estimation and analysis.',
         ITSAppUsesNonExemptEncryption: false,
+        NSFaceIDUsageDescription: "BidPeek uses Face ID to securely log you into your account.",
       },
     },
     android: {

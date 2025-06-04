@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { StyleSheet, View, Text, SafeAreaView, Image, ScrollView, TouchableOpacity, Share, ActivityIndicator, Dimensions, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { X, Share2, Bookmark, BookmarkCheck, DollarSign, TrendingUp, Calendar, T
 import { useSavedItems } from '@/hooks/useSavedItems';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
 import { useThemeColor } from '@/constants/useThemeColor';
+import EbayLinkButton from '@/components/EbayLinkButton';
 
 const { width } = Dimensions.get('window');
 
@@ -23,6 +24,29 @@ type ItemType = {
   query?: string;
   sourceWebsite?: string;
   isAIResult?: boolean;
+  searchType?: 'sold' | 'current'; // Explicit search type tracking
+  // Current listings specific properties
+  seller?: {
+    username: string;
+    feedbackPercentage: string;
+    feedbackScore: number;
+  };
+  additionalImages?: Array<{ imageUrl: string }>;
+  topRatedBuyingExperience?: boolean;
+  buyingOptions?: string[];
+  itemOriginDate?: string;
+  itemLocation?: {
+    country: string;
+    postalCode?: string;
+  };
+  shippingOptions?: Array<{
+    shippingCostType: string;
+    shippingCost?: {
+      value: string;
+      currency: string;
+    };
+  }>;
+  availableCoupons?: boolean;
   [key: string]: any;
 };
 
@@ -30,6 +54,7 @@ export default function ItemDetailScreen() {
   const { id, data } = useLocalSearchParams();
   const [item, setItem] = useState<ItemType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { savedItems, addToSaved, removeFromSaved } = useSavedItems();
@@ -47,24 +72,29 @@ export default function ItemDetailScreen() {
   const isSaved = savedItems.some(saved => saved?.itemId === id);
   const isAIResult = item?.isAIResult || item?.sourceWebsite;
   
-  // Explicit current listing detection
-  const hasSellerInfo = !!(item?.seller);
-  const hasAdditionalImages = !!(item?.additionalImages && item?.additionalImages.length > 0);
-  const hasTopRatedStatus = !!(item?.topRatedBuyingExperience);
-  const isEbayListing = item?.sourceWebsite === 'ebay.com' && !item?.isAIResult;
-  
-  const isCurrentListing = hasSellerInfo || hasAdditionalImages || hasTopRatedStatus || isEbayListing;
+  // Use explicit searchType instead of inferring
+  const isCurrentListing = item?.searchType === 'current';
 
-  // Quick debug
-  if (item) {
-    console.log('=== CURRENT LISTING DEBUG ===');
-    console.log('hasSellerInfo:', hasSellerInfo);
-    console.log('hasAdditionalImages:', hasAdditionalImages);
-    console.log('hasTopRatedStatus:', hasTopRatedStatus);
-    console.log('isEbayListing:', isEbayListing);
-    console.log('isCurrentListing:', isCurrentListing);
-    console.log('=== END DEBUG ===');
-  }
+  // Create images array for carousel
+  const allImages = useMemo(() => {
+    if (!item) return [];
+    
+    const images = [];
+    
+    // Add main image first
+    if (item.image || item.image_url) {
+      images.push({ imageUrl: item.image || item.image_url });
+    }
+    
+    // Add additional images
+    if (item.additionalImages && item.additionalImages.length > 0) {
+      images.push(...item.additionalImages);
+    }
+    
+    return images;
+  }, [item]);
+
+  const hasMultipleImages = isCurrentListing && allImages.length > 1;
 
   useEffect(() => {
     if (data) {
@@ -80,6 +110,7 @@ export default function ItemDetailScreen() {
             image: parsedItem.image || parsedItem.image_url,
             link: parsedItem.url,
             price: parsedItem.price,
+            searchType: parsedItem.searchType || 'sold', // Use explicit searchType or default to sold
           });
         }
       } catch (e) {
@@ -90,13 +121,13 @@ export default function ItemDetailScreen() {
     } else {
       setIsLoading(false);
     }
-  }, [data, id, addToHistory]);
+  }, [data, id]);
 
   const handleShare = async () => {
     if (!item) return;
     try {
       await Share.share({
-        message: `Check out this ${item.title} - ${formatPrice(item.price)}`,
+        message: `Check out this item I found on BidPeek! ${item.title} - ${formatPrice(item.price)}`,
       });
     } catch (error) {
       console.error('Error sharing:', error);
@@ -161,6 +192,12 @@ export default function ItemDetailScreen() {
     }
   };
 
+  const handleImageScroll = (event: any) => {
+    const scrollX = event.nativeEvent.contentOffset.x;
+    const imageIndex = Math.round(scrollX / width);
+    setCurrentImageIndex(imageIndex);
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.loadingContainer, { backgroundColor }]}> 
@@ -211,17 +248,61 @@ export default function ItemDetailScreen() {
       </Animated.View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Image Section */}
+        {/* Image Section with Carousel */}
         <Animated.View 
           style={styles.imageContainer}
           entering={FadeIn.duration(400)}
         >
-          {(item.image || item.image_url) ? (
-            <Image 
-              source={{ uri: item.image || item.image_url }} 
-              style={styles.itemImage} 
-              resizeMode="contain"
-            />
+          {allImages.length > 0 ? (
+            <>
+              {hasMultipleImages ? (
+                <>
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    onScroll={handleImageScroll}
+                    scrollEventThrottle={16}
+                    style={styles.imageCarousel}
+                  >
+                    {allImages.map((image, index) => (
+                      <Image 
+                        key={index}
+                        source={{ uri: image.imageUrl }} 
+                        style={styles.itemImage} 
+                        resizeMode="contain"
+                      />
+                    ))}
+                  </ScrollView>
+                  {/* Pagination Indicators */}
+                  <View style={styles.paginationContainer}>
+                    {allImages.map((_, index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.paginationDot,
+                          {
+                            backgroundColor: index === currentImageIndex ? tintColor : 'rgba(255,255,255,0.5)'
+                          }
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  {/* Image Counter */}
+                  <View style={[styles.imageCounter, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+                    <Text style={styles.imageCounterText}>
+                      {currentImageIndex + 1} / {allImages.length}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <Image 
+                  source={{ uri: allImages[0].imageUrl }} 
+                  style={styles.itemImage} 
+                  resizeMode="contain"
+                />
+              )}
+            </>
           ) : (
             <View style={[styles.itemImagePlaceholder, { backgroundColor: cardColor }]}> 
               <ShoppingBag size={64} color={subtleText} />
@@ -258,15 +339,15 @@ export default function ItemDetailScreen() {
             <View style={styles.priceHeader}>
               <DollarSign size={24} color={tintColor} />
               <Text style={[styles.priceLabel, { color: textColor }]}>
-                {isAIResult ? 'Current Price' : 'Sold Price'}
+                {isCurrentListing ? 'Current Price' : 'Sold Price'}
               </Text>
             </View>
             <Text style={[styles.currentPrice, { color: tintColor }]}>
               {formatPrice(item.price)}
             </Text>
-            {isAIResult && (
+            {isCurrentListing && (
               <Text style={[styles.priceNote, { color: subtleText }]}>
-                Live marketplace pricing
+                Live listing pricing
               </Text>
             )}
           </View>
@@ -290,10 +371,10 @@ export default function ItemDetailScreen() {
             >
               <Calendar size={20} color={tintColor} />
               <Text style={[styles.infoCardLabel, { color: subtleText }]}>
-                {isAIResult ? 'Date Found' : 'Date Sold'}
+                {isCurrentListing ? 'Date Listed' : (isAIResult ? 'Date Found' : 'Date Sold')}
               </Text>
               <Text style={[styles.infoCardValue, { color: textColor }]}>
-                {formatDate(item.timestamp)}
+                {isCurrentListing && item.itemOriginDate ? formatDate(item.itemOriginDate) : formatDate(item.timestamp)}
               </Text>
             </Animated.View>
 
@@ -307,6 +388,69 @@ export default function ItemDetailScreen() {
                 <Text style={[styles.infoCardValue, { color: textColor }]}>{item.sourceWebsite}</Text>
               </Animated.View>
             )}
+
+            {/* Current listings specific info cards */}
+            {isCurrentListing && item.itemLocation && (
+              <Animated.View 
+                style={[styles.infoCard, { backgroundColor: backgroundColor }]}
+                entering={FadeInDown.delay(350).duration(400)}
+              >
+                <ShoppingBag size={20} color={tintColor} />
+                <Text style={[styles.infoCardLabel, { color: subtleText }]}>Location</Text>
+                <Text style={[styles.infoCardValue, { color: textColor }]}>
+                  {item.itemLocation.country}{item.itemLocation.postalCode ? `, ${item.itemLocation.postalCode.replace(/\*/g, '')}` : ''}
+                </Text>
+              </Animated.View>
+            )}
+
+            {isCurrentListing && item.shippingOptions && item.shippingOptions.length > 0 && (
+              <Animated.View 
+                style={[styles.infoCard, { backgroundColor: backgroundColor }]}
+                entering={FadeInDown.delay(375).duration(400)}
+              >
+                <TrendingUp size={20} color={tintColor} />
+                <Text style={[styles.infoCardLabel, { color: subtleText }]}>Shipping</Text>
+                <Text style={[styles.infoCardValue, { color: textColor }]}>
+                  {item.shippingOptions[0].shippingCost ? 
+                    (item.shippingOptions[0].shippingCost.value === '0.00' ? 
+                      'Free' : 
+                      `$${item.shippingOptions[0].shippingCost.value}`
+                    ) : 
+                    'Calculated'
+                  }
+                </Text>
+              </Animated.View>
+            )}
+
+            {isCurrentListing && item.buyingOptions && item.buyingOptions.length > 0 && (
+              <Animated.View 
+                style={[styles.infoCard, { backgroundColor: backgroundColor }]}
+                entering={FadeInDown.delay(400).duration(400)}
+              >
+                <Tag size={20} color={tintColor} />
+                <Text style={[styles.infoCardLabel, { color: subtleText }]}>Buying Options</Text>
+                <Text style={[styles.infoCardValue, { color: textColor }]} numberOfLines={2}>
+                  {item.buyingOptions.map((option: string) => 
+                    option === 'FIXED_PRICE' ? 'Buy Now' : 
+                    option === 'BEST_OFFER' ? 'Best Offer' : 
+                    option
+                  ).join(', ')}
+                </Text>
+              </Animated.View>
+            )}
+
+            {isCurrentListing && item.additionalImages && item.additionalImages.length > 0 && (
+              <Animated.View 
+                style={[styles.infoCard, { backgroundColor: backgroundColor }]}
+                entering={FadeInDown.delay(425).duration(400)}
+              >
+                <ShoppingBag size={20} color={tintColor} />
+                <Text style={[styles.infoCardLabel, { color: subtleText }]}>Images</Text>
+                <Text style={[styles.infoCardValue, { color: textColor }]}>
+                  {item.additionalImages.length + 1} total
+                </Text>
+              </Animated.View>
+            )}
           </View>
 
           {/* Action Buttons */}
@@ -318,60 +462,93 @@ export default function ItemDetailScreen() {
             <View style={[styles.disclaimerCard, { backgroundColor: backgroundColor }]}>
               <AlertCircle size={16} color={subtleText} />
               <Text style={[styles.disclaimerText, { color: subtleText }]}>
-                {isAIResult 
-                  ? "This listing is from an external marketplace. Prices and availability may have changed."
-                  : "This item was sold on eBay. Use this data for market research and pricing guidance."
+                {isCurrentListing 
+                  ? "This is a live listing from eBay. Prices and availability may change."
+                  : (isAIResult 
+                    ? "This listing is from an external marketplace. Prices and availability may have changed."
+                    : "This item was sold on eBay. Use this data for market research and pricing guidance."
+                  )
                 }
               </Text>
             </View>
 
-            {/* {item.query && (
-              <TouchableOpacity
-                style={[styles.primaryActionButton, { backgroundColor: tintColor }]}
-                onPress={() => router.push({ pathname: '/(tabs)/', params: { q: item.query } })}
-              >
-                <SearchIcon size={20} color="#fff" />
-                <Text style={[styles.actionButtonText, { color: '#fff' }]}>Search Similar Items</Text>
-              </TouchableOpacity>
-            )} */}
-{/* 
-            <TouchableOpacity
-              style={[styles.secondaryActionButton, { borderColor: tintColor }]}
-              onPress={handleNewSearch}
-            >
-              <SearchIcon size={20} color={tintColor} />
-              <Text style={[styles.actionButtonText, { color: tintColor }]}>New Search</Text>
-            </TouchableOpacity> */}
-          </Animated.View>
-
-          {/* Seller Info for Current Listings */}
-          {(isCurrentListing && item.seller) ? (
-            <Animated.View 
-              style={[styles.sellerCard, { backgroundColor: backgroundColor }]}
-              entering={FadeInDown.delay(150).duration(400)}
-            >
-              <View style={styles.sellerHeader}>
-                <User size={20} color={tintColor} />
-                <Text style={[styles.sellerLabel, { color: textColor }]}>Seller Information</Text>
-              </View>
-              <View style={styles.sellerDetails}>
-                <Text style={[styles.sellerName, { color: textColor }]}>
-                  {item.seller?.username || 'Test Seller'}
-                </Text>
-                <View style={styles.sellerStats}>
-                  <View style={styles.sellerStat}>
-                    <Star size={16} color="#FFD700" fill="#FFD700" />
-                    <Text style={[styles.sellerStatText, { color: textColor }]}>
-                      {item.seller?.feedbackPercentage || '99'}% positive
-                    </Text>
-                  </View>
-                  <Text style={[styles.sellerFeedbackScore, { color: subtleText }]}>
-                    {item.seller?.feedbackScore || '999'} feedback
-                  </Text>
+            {/* Current listing features */}
+            {isCurrentListing && (
+              <View style={[styles.featuresCard, { backgroundColor: backgroundColor }]}>
+                <Text style={[styles.featuresTitle, { color: textColor }]}>Listing Features</Text>
+                <View style={styles.featuresGrid}>
+                  {item.topRatedBuyingExperience && (
+                    <View style={[styles.featureBadge, { backgroundColor: successColor }]}>
+                      <Star size={12} color="#fff" />
+                      <Text style={styles.featureBadgeText}>Top Rated</Text>
+                    </View>
+                  )}
+                  {item.buyingOptions?.includes('BEST_OFFER') && (
+                    <View style={[styles.featureBadge, { backgroundColor: tintColor }]}>
+                      <DollarSign size={12} color="#fff" />
+                      <Text style={styles.featureBadgeText}>Best Offer</Text>
+                    </View>
+                  )}
+                  {item.availableCoupons && (
+                    <View style={[styles.featureBadge, { backgroundColor: '#FF6B35' }]}>
+                      <Tag size={12} color="#fff" />
+                      <Text style={styles.featureBadgeText}>Coupons</Text>
+                    </View>
+                  )}
+                  {item.shippingOptions?.some((option: any) => option.shippingCost?.value === '0.00') && (
+                    <View style={[styles.featureBadge, { backgroundColor: '#28A745' }]}>
+                      <TrendingUp size={12} color="#fff" />
+                      <Text style={styles.featureBadgeText}>Free Ship</Text>
+                    </View>
+                  )}
                 </View>
               </View>
-            </Animated.View>
-          ) : null}
+            )}
+
+            {/* Enhanced Seller Info for Current Listings */}
+            {(isCurrentListing && item.seller) ? (
+              <Animated.View 
+                style={[styles.sellerCard, { backgroundColor: backgroundColor }]}
+                entering={FadeInDown.delay(150).duration(400)}
+              >
+                <View style={styles.sellerHeader}>
+                  <User size={20} color={tintColor} />
+                  <Text style={[styles.sellerLabel, { color: textColor }]}>Seller Information</Text>
+                </View>
+                <View style={styles.sellerDetails}>
+                  <View style={styles.sellerMainInfo}>
+                    <Text style={[styles.sellerName, { color: textColor }]}>
+                      {item.seller?.username || 'Test Seller'}
+                    </Text>
+                    <View style={styles.sellerStats}>
+                      <View style={styles.sellerStat}>
+                        <Star size={16} color="#FFD700" fill="#FFD700" />
+                        <Text style={[styles.sellerStatText, { color: textColor }]}>
+                          {item.seller?.feedbackPercentage || '99'}% positive
+                        </Text>
+                      </View>
+                      <Text style={[styles.sellerFeedbackScore, { color: subtleText }]}>
+                        {item.seller?.feedbackScore || '999'} feedback
+                      </Text>
+                    </View>
+                  </View>
+                  {item.topRatedBuyingExperience && (
+                    <View style={[styles.topRatedSellerBadge, { backgroundColor: successColor }]}>
+                      <Text style={styles.topRatedSellerText}>TOP RATED</Text>
+                    </View>
+                  )}
+                </View>
+              </Animated.View>
+            ) : null}
+
+            {/* eBay Link Button */}
+            <EbayLinkButton
+              itemUrl={item.url || item.itemWebUrl}
+              isCurrentListing={isCurrentListing}
+              itemId={item.itemId}
+              disabled={!item.url && !item.itemWebUrl}
+            />
+          </Animated.View>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -608,11 +785,15 @@ const styles = StyleSheet.create({
   sellerDetails: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sellerMainInfo: {
+    flex: 1,
   },
   sellerName: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
-    marginRight: 8,
+    marginBottom: 4,
   },
   sellerStats: {
     flexDirection: 'row',
@@ -630,5 +811,78 @@ const styles = StyleSheet.create({
   sellerFeedbackScore: {
     fontFamily: 'Inter_400Regular',
     fontSize: 14,
+  },
+  featuresCard: {
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  featuresTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
+    marginBottom: 16,
+  },
+  featuresGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  featureBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+  },
+  featureBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  topRatedSellerBadge: {
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+  },
+  topRatedSellerText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    color: '#fff',
+  },
+  imageCarousel: {
+    width: width,
+    height: width * 0.8,
+  },
+  paginationContainer: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  imageCounter: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  imageCounterText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: '#fff',
   },
 });

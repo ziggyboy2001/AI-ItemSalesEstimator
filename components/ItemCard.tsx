@@ -1,3 +1,4 @@
+import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Image } from 'react-native';
 import { formatDistanceToNow } from '@/utils/dateUtils';
 import { ShoppingBag, ExternalLink } from 'lucide-react-native';
@@ -24,6 +25,11 @@ interface ItemCardProps {
     topRatedBuyingExperience?: boolean;
     buyingOptions?: string[];
     itemOriginDate?: string; // For current listings date
+    itemLocation?: {
+      country: string;
+      postalCode?: string;
+    };
+    availableCoupons?: boolean;
   };
   onPress: () => void;
   isOutlier?: 'high' | 'low' | null;
@@ -65,6 +71,26 @@ export default function ItemCard({
   const sellerRating = isCurrentListing && item.seller ? parseFloat(item.seller.feedbackPercentage || '0') : null;
   const isTopRated = isCurrentListing && item.topRatedBuyingExperience;
   const hasBestOffer = isCurrentListing && item.buyingOptions?.includes('BEST_OFFER');
+  const hasFreeCoupons = isCurrentListing && item.availableCoupons;
+  const listingLocation = isCurrentListing && item.itemLocation ? `${item.itemLocation.country}${item.itemLocation.postalCode ? `, ${item.itemLocation.postalCode.replace(/\*/g, '')}` : ''}` : null;
+
+  // Format listing date for current listings
+  const formatListingDate = (dateStr: string) => {
+    if (!dateStr) return 'Unknown';
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 0) return 'Today';
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays}d ago`;
+      if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+      return date.toLocaleDateString();
+    } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <TouchableOpacity
@@ -81,15 +107,16 @@ export default function ItemCard({
           />
         ) : (
           <View style={[styles.noImageContainer, { backgroundColor: backgroundColor }]}>
-            <ShoppingBag size={24} color="#ccc" />
+            <ShoppingBag size={20} color="#ccc" />
             {isAIResult && sourceWebsite && typeof sourceWebsite === 'string' && sourceWebsite.trim() !== '' && (
               <Text style={styles.sourceLabel}>{sourceWebsite}</Text>
             )}
           </View>
         )}
-        {isMostRecent && (
-          <View style={[styles.badge, { backgroundColor: badgeColor }]}> 
-            <Text style={styles.badgeText}>Most Recent</Text>
+        {/* Multiple images indicator for current listings only */}
+        {hasMultipleImages && (
+          <View style={[styles.imageCountBadge, { backgroundColor: 'rgba(0,0,0,0.7)' }]}> 
+            <Text style={styles.imageCountText}>+{item.additionalImages?.length || 0}</Text>
           </View>
         )}
       </View>
@@ -98,15 +125,17 @@ export default function ItemCard({
         <Text style={[styles.title, { color: textColor }]} numberOfLines={2}>
           {item.title}
         </Text>
+        
+        {/* Show different data based on item type */}
         <View style={styles.detailsRow}>
           <View style={styles.detailBlock}>
             <Text style={[styles.detailNumber, { color: priceColor }]}>
               ${typeof item.sale_price === 'number' && !isNaN(item.sale_price) ? item.sale_price.toFixed(2) : 'N/A'}
             </Text>
-            <Text style={styles.detailLabel}>{isCurrentListing ? 'Current Price' : (isAIResult ? 'Current Price' : 'Sold Price')}</Text>
+            <Text style={styles.detailLabel}>{isCurrentListing ? 'Current' : 'Sold'}</Text>
           </View>
           
-          {/* Shipping info */}
+          {/* Shipping - show for both types */}
           {item.shipping_price !== undefined && (
             <View style={styles.detailBlock}>
               <Text style={[styles.detailNumber, { color: priceColor }]}>{
@@ -116,75 +145,77 @@ export default function ItemCard({
                     ? 'Free'
                     : item.shipping_price
               }</Text>
-              <Text style={styles.detailLabel}>Shipping</Text>
+              <Text style={styles.detailLabel}>Ship</Text>
             </View>
           )}
           
-          {/* Seller info for current listings */}
-          {isCurrentListing && item.seller && (
+          {/* CURRENT LISTINGS ONLY - show seller rating and listing date */}
+          {isCurrentListing === true && (
+            <>
+              {item.seller && sellerRating !== null && (
+                <View style={styles.detailBlock}>
+                  <Text style={[styles.detailNumber, { color: priceColor }]}>{sellerRating.toFixed(1)}%</Text>
+                  <Text style={styles.detailLabel}>Rating</Text>
+                </View>
+              )}
+              
+              {item.itemOriginDate && (
+                <View style={styles.detailBlock}>
+                  <Text style={[styles.detailNumber, { color: priceColor }]}>{formatListingDate(item.itemOriginDate)}</Text>
+                  <Text style={styles.detailLabel}>Listed</Text>
+                </View>
+              )}
+            </>
+          )}
+          
+          {/* SOLD ITEMS ONLY - show sold date and profit/loss */}
+          {isCurrentListing === false && (
+            <>
+              {item.date_sold && (
+                <View style={styles.detailBlock}>
+                  <Text style={[styles.detailNumber, { color: priceColor }]}>{(() => {
+                    const d = item.date_sold;
+                    if (!d) return '--';
+                    const parsed = new Date(d);
+                    if (parsed.toString() === 'Invalid Date') return d;
+                    return parsed.toLocaleDateString();
+                  })()}</Text>
+                  <Text style={styles.detailLabel}>Sold</Text>
+                </View>
+              )}
+              
+              {profit !== undefined && typeof profit === 'number' && !isNaN(profit) && (
+                <View style={styles.detailBlock}>
+                  <Text style={[styles.detailNumber, { color: profitColor }]}>
+                    {profit > 0 ? '+' : ''}${Math.abs(profit).toFixed(2)}
+                  </Text>
+                  <Text style={styles.detailLabel}>P/L</Text>
+                </View>
+              )}
+            </>
+          )}
+          
+          {/* Condition - show for both */}
+          {item.condition && (
             <View style={styles.detailBlock}>
-              <Text style={[styles.detailNumber, { color: priceColor }]}>{item.seller.feedbackScore || 0}</Text>
-              <Text style={styles.detailLabel}>Seller Feedback</Text>
-            </View>
-          )}
-          
-          {/* Format/Type */}
-          {item.buying_format && (
-            <View style={styles.detailBlock}>
-              <Text style={[styles.detailNumber, { color: priceColor }]}>{item.buying_format}</Text>
-              <Text style={styles.detailLabel}>Format</Text>
-            </View>
-          )}
-          
-          {/* Date - only for sold items */}
-          {!isCurrentListing && item.date_sold && (
-            <View style={styles.detailBlock}>
-              <Text style={[styles.detailNumber, { color: priceColor }]}>{(() => {
-                const d = item.date_sold;
-                if (!d) return '--';
-                const parsed = new Date(d);
-                if (parsed.toString() === 'Invalid Date') return d;
-                return parsed.toLocaleDateString();
-              })()}</Text>
-              <Text style={styles.detailLabel}>{isAIResult ? 'Date Found' : 'Date Sold'}</Text>
-            </View>
-          )}
-          
-          {/* Best Offer indicator for current listings */}
-          {isCurrentListing && hasBestOffer && (
-            <View style={styles.detailBlock}>
-              <Text style={[styles.detailNumber, { color: successColor }]}>Yes</Text>
-              <Text style={styles.detailLabel}>Best Offer</Text>
-            </View>
-          )}
-          
-          {/* Profit/Loss calculation */}
-          {profit !== undefined && typeof profit === 'number' && !isNaN(profit) && (
-            <View style={styles.detailBlock}>
-              <Text style={[styles.detailNumber, { color: profitColor }]}>
-                {profit > 0 ? '+' : ''}${Math.abs(profit).toFixed(2)}
-              </Text>
-              <Text style={styles.detailLabel}>Profit/Loss</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Condition and additional info */}
-        <View style={styles.bottomRow}>
-          {item.condition && typeof item.condition === 'string' && item.condition.trim() !== '' && (
-            <View style={styles.conditionBadge}>
-              <Text style={[styles.conditionText, { color: conditionColor }]}>{item.condition}</Text>
-            </View>
-          )}
-          
-          {/* Current listings: show seller name */}
-          {isCurrentListing && item.seller && (
-            <View style={styles.sellerInfo}>
-              <Text style={[styles.sellerName, { color: conditionColor }]}>by {item.seller.username}</Text>
+              <Text style={[styles.detailNumber, { color: priceColor }]} numberOfLines={1}>{item.condition}</Text>
+              <Text style={styles.detailLabel}>Condition</Text>
             </View>
           )}
         </View>
       </View>
+
+      {/* Badges positioned on top LEFT of entire card */}
+      {isMostRecent && (
+        <View style={[styles.cardBadge, { backgroundColor: badgeColor }]}> 
+          <Text style={styles.cardBadgeText}>Most Recent</Text>
+        </View>
+      )}
+      {isTopRated && (
+        <View style={[styles.cardBadge, styles.topRatedCardBadge, { backgroundColor: successColor }]}> 
+          <Text style={styles.cardBadgeText}>TOP</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -193,7 +224,8 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
     marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -201,10 +233,10 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
     overflow: 'hidden',
+    height: 100,
   },
   imageContainer: {
     width: 100,
-    height: 100,
     position: 'relative',
   },
   image: {
@@ -232,38 +264,68 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#333',
   },
+  imageCountBadge: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 2,
+  },
+  imageCountText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 10,
+    color: '#fff',
+  },
+  topRatedBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 2,
+  },
+  topRatedText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 8,
+    color: '#fff',
+  },
   contentContainer: {
     flex: 1,
-    padding: 12,
+    padding: 8,
     justifyContent: 'space-between',
   },
   title: {
     fontFamily: 'Inter_500Medium',
-    fontSize: 15,
+    fontSize: 13,
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 4,
+    lineHeight: 16,
   },
   detailsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 6,
+    marginBottom: 0,
   },
   detailBlock: {
     alignItems: 'flex-start',
-    marginRight: 18,
-    marginBottom: 4,
-    minWidth: 60,
+    marginRight: 12,
+    marginBottom: 2,
+    minWidth: 45,
   },
   detailNumber: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
+    fontSize: 13,
     color: '#111',
+    lineHeight: 15,
   },
   detailLabel: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 12,
+    fontSize: 9,
     color: '#888',
-    marginTop: 2,
+    marginTop: 1,
   },
   condition: {
     fontFamily: 'Inter_400Regular',
@@ -312,5 +374,33 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     fontSize: 12,
     color: '#666',
+  },
+  cardBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 9999,
+    shadowColor: '#FFEB3B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  cardBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 10,
+    color: '#000000',
+  },
+  topRatedCardBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 2,
   },
 });

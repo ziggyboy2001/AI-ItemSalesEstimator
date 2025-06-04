@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
@@ -13,16 +13,28 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
-import { supabase } from '../services/supabaseClient';
 import AuthScreen from './AuthScreen';
-import type { User } from '@supabase/supabase-js';
+import { useAuth } from '@/hooks/useAuth';
+import { View, ActivityIndicator } from 'react-native';
 
 // Keep the splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
 
-function AppContent({ user }: { user: User | null }) {
+function AppContent() {
   const backgroundColor = useThemeColor('background');
+  const tintColor = useThemeColor('tint');
+  const { user, isLoading, isInitialized } = useAuth();
 
+  // Show loading while initializing auth or fonts
+  if (!isInitialized || isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor }}>
+        <ActivityIndicator size="large" color={tintColor} />
+      </View>
+    );
+  }
+
+  // Show auth screen if no user
   if (!user) {
     return (
       <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
@@ -32,6 +44,7 @@ function AppContent({ user }: { user: User | null }) {
     );
   }
 
+  // Show main app if authenticated
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
       <Stack screenOptions={{ headerShown: false }}>
@@ -55,19 +68,6 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  const [user, setUser] = useState<User | null>(null);
-
-  useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-    // Get initial user
-    supabase.auth.getUser().then(({ data }) => setUser(data?.user ?? null));
-    return () => {
-      listener?.subscription.unsubscribe();
-    };
-  }, []);
-
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded || fontError) {
       await SplashScreen.hideAsync();
@@ -82,17 +82,9 @@ export default function RootLayout() {
     return null;
   }
 
-  if (!user) {
-    return (
-      <ThemeProvider>
-        <AppContent user={null} />
-      </ThemeProvider>
-    );
-  }
-
   return (
     <ThemeProvider>
-      <AppContent user={user} />
+      <AppContent />
     </ThemeProvider>
   );
 }
