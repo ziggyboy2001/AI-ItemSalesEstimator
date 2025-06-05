@@ -25,6 +25,9 @@ import { searchWebWithOpenAI, searchWebWithChatGPT, simpleAIWebSearch, searchByI
 import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
 import { searchByImage as ebaySearchByImage, EbayError, EbayErrorType, calculateEbayImageSearchStats, simplifyItemTitle } from '@/services/ebayApi';
 import { searchEbayListings, calculateEbayBrowseStats, EbayBrowseError, EbayBrowseErrorType } from '@/services/ebayBrowseApi';
+import { SubscriptionService } from '@/services/SubscriptionService';
+import { useDeviceId } from '@/hooks/useDeviceId';
+import { useSubscription } from '@/contexts/SubscriptionContext';
 
 interface SearchResult {
   itemId: string;
@@ -190,6 +193,8 @@ export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const { addRecentSearch, recentSearches } = useRecentSearches();
   const { addToHistory } = useSearchHistory();
+  const { deviceId } = useDeviceId();
+  const { refreshUsage } = useSubscription();
 
   // THEME COLORS
   const backgroundColor = useThemeColor('background');
@@ -202,6 +207,35 @@ export default function SearchScreen() {
 
   const handleEbayBrowseSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim()) return;
+    
+    // Check scan limits before processing
+    if (deviceId) {
+      try {
+        const { canScan, reason, usageInfo } = await SubscriptionService.canUserScan(null, deviceId, 'current_text');
+        
+        if (!canScan) {
+          setListingsError(reason || 'Scan limit exceeded');
+          
+          // Show subscription upgrade modal/alert
+          Alert.alert(
+            'Scan Limit Reached',
+            `${reason}\n\nUsage: ${usageInfo.used}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} scans this month`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Upgrade', 
+                onPress: () => router.push('/subscription') 
+              }
+            ]
+          );
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking scan limits:', error);
+        // Continue with search if limit check fails
+      }
+    }
+    
     setIsLoading(true);
     setListingsError('');
     
@@ -271,6 +305,27 @@ export default function SearchScreen() {
       setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
       setListingsResults(mappedResults);
       addRecentSearch(query);
+
+      // Record successful scan after search completes
+      if (deviceId && mappedResults.length > 0) {
+        try {
+          // Record the scan without search_id for now (we'll link it later if needed)
+          
+          // The search will be saved to history below, but we need to get its ID
+          // For now, we'll record the scan without search_id and link it later if needed
+          await SubscriptionService.recordScan(null, deviceId, 'current_text', '', {
+            searchType: 'current',
+            query,
+            resultsFound: mappedResults.length
+          });
+          console.log('✅ Current listings text scan recorded successfully');
+          
+          // Refresh usage display
+          await refreshUsage();
+        } catch (error) {
+          console.error('Error recording current listings scan:', error);
+        }
+      }
 
       // Save to search history for current listings - IMMEDIATE UPDATE
       if (mappedResults.length > 0) {
@@ -344,7 +399,7 @@ export default function SearchScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, addRecentSearch, addToHistory]);
+  }, [searchQuery, addRecentSearch, addToHistory, deviceId, refreshUsage, router]);
 
   const handleSearch = useCallback(async (query = searchQuery) => {
     if (!query.trim() && !selectedImage) return;
@@ -354,6 +409,35 @@ export default function SearchScreen() {
     // Priority logic: Image first, then text fallback for current listings
     if (selectedImage && isImageSearch) {
       console.log('🔍 Using image search (priority over text)...');
+      
+      // Check scan limits for image search before processing
+      if (deviceId) {
+        try {
+          const { canScan, reason, usageInfo } = await SubscriptionService.canUserScan(null, deviceId, 'current_image');
+          
+          if (!canScan) {
+            setListingsError(reason || 'Scan limit exceeded');
+            
+            // Show subscription upgrade modal/alert
+            Alert.alert(
+              'Scan Limit Reached',
+              `${reason}\n\nUsage: ${usageInfo.used}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} scans this month`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { 
+                  text: 'Upgrade', 
+                  onPress: () => router.push('/subscription') 
+                }
+              ]
+            );
+            setIsLoading(false);
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking image scan limits:', error);
+          // Continue with search if limit check fails
+        }
+      }
       
       try {
         console.log('🔍 Using eBay Image Search for identification and data population...');
@@ -402,6 +486,24 @@ export default function SearchScreen() {
           
           // Set the search query (use original title for Current Listings)
           setSearchQuery(identifiedTitle);
+          
+          // Record successful image scan after search completes
+          if (deviceId && mappedResults.length > 0) {
+            try {
+              await SubscriptionService.recordScan(null, deviceId, 'current_image', '', {
+                searchType: 'current',
+                query: 'Image Search',
+                identifiedTitle,
+                resultsFound: mappedResults.length
+              });
+              console.log('✅ Current listings image scan recorded successfully');
+              
+              // Refresh usage display
+              await refreshUsage();
+            } catch (error) {
+              console.error('Error recording current listings image scan:', error);
+            }
+          }
           
           // Save image search to history immediately
           if (mappedResults.length > 0) {
@@ -472,10 +574,38 @@ export default function SearchScreen() {
     }
     
     setIsLoading(false);
-  }, [searchQuery, selectedImage, isImageSearch, activeTab, handleEbayBrowseSearch, addToHistory]);
+  }, [searchQuery, selectedImage, isImageSearch, activeTab, handleEbayBrowseSearch, addToHistory, deviceId, refreshUsage, router]);
 
   // eBay search function (extracted from original handleSearch)
   const handleEbaySearch = useCallback(async (query: string) => {
+    // Check scan limits for sold items search before processing
+    if (deviceId) {
+      try {
+        const { canScan, reason, usageInfo } = await SubscriptionService.canUserScan(null, deviceId, 'sold_text');
+        
+        if (!canScan) {
+          setSoldError(reason || 'Scan limit exceeded');
+          
+          // Show subscription upgrade modal/alert
+          Alert.alert(
+            'Scan Limit Reached',
+            `${reason}\n\nUsage: ${usageInfo.used}/${usageInfo.limit === -1 ? '∞' : usageInfo.limit} scans this month`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Upgrade', 
+                onPress: () => router.push('/subscription') 
+              }
+            ]
+          );
+          return;
+        }
+      } catch (error) {
+        console.error('Error checking sold items scan limits:', error);
+        // Continue with search if limit check fails
+      }
+    }
+    
     setSoldError('');
     try {
       const ebayRequest = await inferEbayRequestFields(query);
@@ -507,6 +637,23 @@ export default function SearchScreen() {
       setSoldItemFlags(newItemFlags);
       setSoldResults(mappedResults);
       addRecentSearch(query);
+      
+      // Record successful sold items scan after search completes
+      if (deviceId && mappedResults.length > 0) {
+        try {
+          await SubscriptionService.recordScan(null, deviceId, 'sold_text', '', {
+            searchType: 'sold',
+            query,
+            resultsFound: mappedResults.length
+          });
+          console.log('✅ Sold items text scan recorded successfully');
+          
+          // Refresh usage display
+          await refreshUsage();
+        } catch (error) {
+          console.error('Error recording sold items scan:', error);
+        }
+      }
       
       // Save to search history
       if (mappedResults.length > 0) {
@@ -543,7 +690,7 @@ export default function SearchScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [addRecentSearch, addToHistory]);
+  }, [addRecentSearch, addToHistory, deviceId, refreshUsage, router]);
 
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
