@@ -551,7 +551,7 @@ Generated: ${new Date().toLocaleDateString()}
           </View>
 
           {/* Preferences Section */}
-          <Animated.View entering={FadeInDown.delay(200).duration(400)}>
+          {/* <Animated.View entering={FadeInDown.delay(200).duration(400)}>
             <Text style={[styles.sectionTitle, { color: textColor }]}>Preferences</Text>
             <View style={[styles.section, { backgroundColor: cardColor }]}>
               {biometricsAvailable && (
@@ -570,7 +570,7 @@ Generated: ${new Date().toLocaleDateString()}
                 </View>
               )}
             </View>
-          </Animated.View>
+          </Animated.View> */}
         </Animated.View>
 
         <Text style={[styles.footer, { color: subtleText }]}>BidPeek © 2025</Text>

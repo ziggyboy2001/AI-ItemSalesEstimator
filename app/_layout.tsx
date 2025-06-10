@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { SubscriptionProvider } from '@/contexts/SubscriptionContext';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -46,15 +47,17 @@ function AppContent() {
 
   // Show main app if authenticated
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
-        <Stack.Screen name="item/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="account-settings" options={{ presentation: 'modal', animation: 'slide_from_right' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </GestureHandlerRootView>
+    <SubscriptionProvider>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor }}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
+          <Stack.Screen name="item/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="account-settings" options={{ presentation: 'modal', animation: 'slide_from_right' }} />
+        </Stack>
+        <StatusBar style="auto" />
+      </GestureHandlerRootView>
+    </SubscriptionProvider>
   );
 }
 

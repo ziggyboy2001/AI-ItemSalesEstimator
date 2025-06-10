@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Search, History, Bookmark, Settings, ShoppingBag } from 'lucide-react-native';
+import { Search, History, Bookmark, Settings, ShoppingBag, Crown } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 
 import Colors from '@/constants/Colors';
@@ -42,6 +42,13 @@ export default function TabLayout() {
         options={{
           title: 'Haul',
           tabBarIcon: ({ color, size }) => <ShoppingBag size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="subscription"
+        options={{
+          title: 'Premium',
+          tabBarIcon: ({ color, size }) => <Crown size={size} color={color} />,
         }}
       />
       <Tabs.Screen
