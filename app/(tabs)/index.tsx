@@ -25,7 +25,7 @@ import { searchWebWithOpenAI, searchWebWithChatGPT, simpleAIWebSearch, searchByI
 import { generateGoogleShoppingSearchURL, generateGoogleLensURL } from '@/services/googleImageSearch';
 import { searchByImage as ebaySearchByImage, EbayError, EbayErrorType, calculateEbayImageSearchStats, simplifyItemTitle } from '@/services/ebayApi';
 import { searchEbayListings, calculateEbayBrowseStats, EbayBrowseError, EbayBrowseErrorType } from '@/services/ebayBrowseApi';
-import { SubscriptionService } from '@/services/SubscriptionService';
+import { SubscriptionService } from '@/services/subscriptionService';
 import { useDeviceId } from '@/hooks/useDeviceId';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 

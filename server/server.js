@@ -7,7 +7,7 @@ require('dotenv').config();
 const SUPABASE_URL = 'https://sxkrkcxumaphascahdxz.supabase.co';
 const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4a3JrY3h1bWFwaGFzY2FoZHh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0Nzc1MzU5NCwiZXhwIjoyMDYzMzI5NTk0fQ.jKo4PsQLV41RiK5B6a6PrIh6QiXTOMmNlUrPqYwPzHU';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4a3JrY3h1bWFwaGFzY2FoZHh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0Nzc1MzU5NCwiZXhwIjoyMDYzMzI5NTk0fQ.xGdZFUsE832h4teWSsMfBZTvDn3GqmjRORkvTaFS99o';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,6 +22,222 @@ app.use(express.json());
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Record scan endpoint for app
+app.post('/record-scan', async (req, res) => {
+  try {
+    const { userId, deviceId, scanType, searchId, metadata } = req.body;
+
+    console.log(
+      `📝 Recording scan via API: ${scanType} for device ${deviceId}`
+    );
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/user_scans`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        device_id: deviceId,
+        scan_type: scanType,
+        search_id: searchId || null,
+        metadata: metadata || null,
+        created_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to record scan: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    console.log(`✅ Scan recorded successfully via API: ${scanType}`);
+    res.json({ success: true, message: 'Scan recorded successfully' });
+  } catch (error) {
+    console.error('❌ Error recording scan via API:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get user subscription endpoint
+app.get('/subscription/:deviceId', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { userId } = req.query;
+
+    console.log(`📋 Getting subscription for device ${deviceId}`);
+
+    const queryParam = userId
+      ? `user_id=eq.${userId}`
+      : `device_id=eq.${deviceId}&user_id=is.null`;
+
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_subscriptions?${queryParam}&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch subscription: ${response.statusText}`);
+    }
+
+    const subscriptions = await response.json();
+
+    if (subscriptions.length === 0) {
+      // Create free subscription
+      const freeSubscription = await createFreeSubscription(userId, deviceId);
+      res.json(freeSubscription);
+    } else {
+      res.json(subscriptions[0]);
+    }
+  } catch (error) {
+    console.error('❌ Error getting subscription:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get usage info endpoint
+app.get('/usage/:deviceId', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { userId } = req.query;
+
+    console.log(`📊 Getting usage for device ${deviceId}`);
+
+    const queryParam = userId
+      ? `user_id=eq.${userId}`
+      : `device_id=eq.${deviceId}`;
+
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_scans?${queryParam}&created_at=gte.${new Date().getFullYear()}-${String(
+        new Date().getMonth() + 1
+      ).padStart(2, '0')}-01T00:00:00Z`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch usage: ${response.statusText}`);
+    }
+
+    const scans = await response.json();
+
+    const breakdown = {
+      current_text: 0,
+      current_image: 0,
+      sold_text: 0,
+    };
+
+    scans.forEach((scan) => {
+      if (scan.scan_type in breakdown) {
+        breakdown[scan.scan_type]++;
+      }
+    });
+
+    const totalUsage = Object.values(breakdown).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+
+    res.json({
+      used: totalUsage,
+      breakdown,
+      month:
+        new Date().getFullYear() +
+        '-' +
+        String(new Date().getMonth() + 1).padStart(2, '0'),
+    });
+  } catch (error) {
+    console.error('❌ Error getting usage:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check scan limits endpoint
+app.post('/check-scan-limit', async (req, res) => {
+  try {
+    const { userId, deviceId, scanType } = req.body;
+
+    console.log(`🔍 Checking scan limit for ${scanType} on device ${deviceId}`);
+
+    // Get subscription
+    const subResponse = await fetch(
+      `http://localhost:${PORT}/subscription/${deviceId}${
+        userId ? `?userId=${userId}` : ''
+      }`,
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    if (!subResponse.ok) {
+      throw new Error('Failed to get subscription');
+    }
+
+    const subscription = await subResponse.json();
+
+    // Get usage
+    const usageResponse = await fetch(
+      `http://localhost:${PORT}/usage/${deviceId}${
+        userId ? `?userId=${userId}` : ''
+      }`,
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    if (!usageResponse.ok) {
+      throw new Error('Failed to get usage');
+    }
+
+    const usage = await usageResponse.json();
+
+    // Check limits
+    const scanLimits = {
+      free: 3,
+      hobby: 25,
+      pro: 100,
+      business: 100,
+      unlimited: -1,
+    };
+
+    const limit = scanLimits[subscription.subscription_type] || 3;
+    const canScan =
+      subscription.subscription_type === 'unlimited' || usage.used < limit;
+
+    res.json({
+      canScan,
+      usageInfo: {
+        used: usage.used,
+        limit: limit,
+        remaining: limit === -1 ? -1 : Math.max(0, limit - usage.used),
+        breakdown: usage.breakdown,
+      },
+      reason: !canScan
+        ? `You've reached your ${subscription.subscription_type} plan limit of ${limit} scans this month. Upgrade to continue scanning.`
+        : undefined,
+    });
+  } catch (error) {
+    console.error('❌ Error checking scan limit:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Test endpoint to manually update subscription (for debugging)
@@ -560,6 +776,61 @@ async function resetMonthlyUsageForUser(userId) {
       `❌ Error resetting monthly usage for user ${userId}:`,
       error
     );
+  }
+}
+
+// Helper function to create free subscription
+async function createFreeSubscription(userId, deviceId) {
+  try {
+    const now = new Date();
+    const nextMonth = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      now.getDate()
+    );
+
+    const subscriptionRecord = {
+      user_id: userId,
+      device_id: deviceId,
+      subscription_type: 'free',
+      status: 'active',
+      current_period_start: now.toISOString(),
+      current_period_end: nextMonth.toISOString(),
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/user_subscriptions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(subscriptionRecord),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create subscription: ${response.statusText}`);
+    }
+
+    const created = await response.json();
+    console.log('✅ Created free subscription for device:', deviceId);
+    return created[0];
+  } catch (error) {
+    console.error('Error creating free subscription:', error);
+    // Return a default object if database fails
+    return {
+      user_id: userId,
+      device_id: deviceId,
+      subscription_type: 'free',
+      status: 'active',
+      current_period_start: new Date().toISOString(),
+      current_period_end: new Date(
+        Date.now() + 30 * 24 * 60 * 60 * 1000
+      ).toISOString(),
+    };
   }
 }
 

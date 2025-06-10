@@ -38,47 +38,35 @@ export class SubscriptionService {
     scanType: ScanType
   ): Promise<{ canScan: boolean; reason?: string; usageInfo: ScanUsageInfo }> {
     try {
-      // Get user subscription
-      const subscription = await this.getUserSubscription(userId, deviceId);
+      console.log(`🔍 Checking scan limit for ${scanType} on device ${deviceId}`);
       
-      // Get current usage
-      const usageInfo = await this.getUsageInfo(userId, deviceId);
-      
-      // Unlimited tier can always scan
-      if (subscription.tier === 'unlimited') {
-        return { 
-          canScan: true, 
-          usageInfo: {
-            ...usageInfo,
-            limit: -1,
-            remaining: -1
-          }
-        };
+      const response = await fetch('http://localhost:3000/check-scan-limit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          deviceId,
+          scanType
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to check scan limit: ${response.statusText}`);
       }
+
+      const result = await response.json();
+      console.log(`✅ Scan limit check result:`, result);
       
-      const limit = SCAN_LIMITS[subscription.tier];
-      const canScan = usageInfo.used < limit;
-      
-      if (!canScan) {
-        const tierNames = {
-          free: 'Free',
-          hobby: 'Hobby',
-          pro: 'Pro', 
-          business: 'Business',
-          unlimited: 'Unlimited'
-        };
-        
-        return {
-          canScan: false,
-          reason: `You've reached your ${tierNames[subscription.tier]} plan limit of ${limit} scans this month. Upgrade to continue scanning.`,
-          usageInfo
-        };
-      }
-      
-      return { canScan: true, usageInfo };
+      return {
+        canScan: result.canScan,
+        reason: result.reason,
+        usageInfo: result.usageInfo
+      };
       
     } catch (error) {
-      console.error('Error checking scan limits:', error);
+      console.error('❌ Error checking scan limits:', error);
       // In case of error, allow the scan but log the issue
       return { 
         canScan: true, 
@@ -102,33 +90,41 @@ export class SubscriptionService {
     searchId: string,
     metadata?: any
   ): Promise<void> {
+    console.log('🐛 DEBUG - recordScan method called with:', { userId, deviceId, scanType, searchId, metadata });
+    
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/user_scans`, {
+      console.log(`📝 Recording scan: ${scanType} for device ${deviceId}`);
+      console.log('📝 Request details:', { userId, deviceId, scanType, searchId, metadata });
+      
+      const response = await fetch('http://localhost:3000/record-scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Prefer': 'return=minimal'
         },
         body: JSON.stringify({
-          user_id: userId,
-          device_id: deviceId,
-          scan_type: scanType,
-          search_id: searchId,
-          metadata: metadata || null,
-          created_at: new Date().toISOString()
+          userId,
+          deviceId,
+          scanType,
+          searchId,
+          metadata
         })
       });
+      
+      console.log('📝 Response status:', response.status);
+      console.log('📝 Response ok:', response.ok);
 
       if (!response.ok) {
-        throw new Error(`Failed to record scan: ${response.statusText}`);
+        const errorText = await response.text();
+        console.log('📝 Error response:', errorText);
+        throw new Error(`Failed to record scan: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
-      console.log(`✅ Scan recorded: ${scanType}`);
+      const result = await response.json();
+      console.log(`✅ Scan recorded successfully: ${scanType}`, result);
       
     } catch (error) {
-      console.error('Error recording scan:', error);
+      console.error('❌ Error recording scan:', error);
+      // console.error('❌ Error details:', error.message);
       // Don't throw - we don't want to break the user flow if scan recording fails
     }
   }
@@ -141,15 +137,13 @@ export class SubscriptionService {
     deviceId: string
   ): Promise<UserSubscription> {
     try {
-      // Query by user_id first, then device_id if no user
-      const queryParam = userId ? `user_id=eq.${userId}` : `device_id=eq.${deviceId}&user_id=is.null`;
+      console.log(`📋 Getting subscription for device ${deviceId}`);
       
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/user_subscriptions?${queryParam}&limit=1`,
+        `http://localhost:3000/subscription/${deviceId}${userId ? `?userId=${userId}` : ''}`,
         {
           headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
           }
         }
       );
@@ -158,14 +152,7 @@ export class SubscriptionService {
         throw new Error(`Failed to fetch subscription: ${response.statusText}`);
       }
 
-      const subscriptions = await response.json();
-      
-      if (subscriptions.length === 0) {
-        // No subscription found, create free subscription
-        return await this.createFreeSubscription(userId, deviceId);
-      }
-
-      const dbSub = subscriptions[0];
+      const dbSub = await response.json();
       
       // Convert database subscription to UserSubscription format
       const subscription: UserSubscription = {
@@ -183,68 +170,12 @@ export class SubscriptionService {
         stripeSubscriptionId: dbSub.stripe_subscription_id
       };
 
+      console.log(`✅ Got subscription: ${subscription.tier} for device ${deviceId}`);
       return subscription;
       
     } catch (error) {
-      console.error('Error fetching subscription:', error);
-      // Fallback to free subscription
-      return await this.createFreeSubscription(userId, deviceId);
-    }
-  }
-
-  /**
-   * Create a free subscription for new users
-   */
-  static async createFreeSubscription(
-    userId: string | null,
-    deviceId: string
-  ): Promise<UserSubscription> {
-    try {
-      const now = new Date();
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-      
-      // Insert into database
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/user_subscriptions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          device_id: deviceId,
-          subscription_type: 'free',
-          status: 'active',
-          current_period_start: now.toISOString(),
-          current_period_end: nextMonth.toISOString()
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create subscription: ${response.statusText}`);
-      }
-
-      const freeSubscription: UserSubscription = {
-        userId: userId || deviceId,
-        tier: 'free',
-        paymentMethod: 'external',
-        isActive: true,
-        currentPeriodStart: now,
-        currentPeriodEnd: nextMonth,
-        scansUsed: 0,
-        scansRemaining: 3,
-        autoRenew: false,
-        features: getFeatureFlags('free').hasAdvancedSearch ? ['advanced_search'] : []
-      };
-
-      console.log('✅ Created free subscription');
-      return freeSubscription;
-      
-    } catch (error) {
-      console.error('Error creating free subscription:', error);
-      // Return a default free subscription even if database fails
+      console.error('❌ Error fetching subscription:', error);
+      // Return a default free subscription if API fails
       const now = new Date();
       const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
       
@@ -262,6 +193,8 @@ export class SubscriptionService {
       };
     }
   }
+
+  // Removed - createFreeSubscription now handled by server API
 
   /**
    * Get current month usage for user
@@ -424,14 +357,14 @@ export class SubscriptionService {
       
       // Check if subscription has expired
       if (subscription.currentPeriodEnd < now && subscription.isActive) {
-        console.log('Subscription expired, resetting to free tier:', {
+        console.log('Subscription expired, but expiry handling is now managed by server webhooks:', {
           userId,
           deviceId,
           expiredDate: subscription.currentPeriodEnd
         });
         
-        // Reset to free tier
-        await this.createFreeSubscription(userId, deviceId);
+        // Note: Subscription expiry is now handled by server-side logic
+        // via Stripe webhooks and scheduled jobs
       }
     } catch (error) {
       console.error('Error checking subscription expiry:', error);

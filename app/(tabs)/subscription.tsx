@@ -130,8 +130,21 @@ export default function SubscriptionScreen() {
   const renderCurrentPlan = () => {
     const currentPlan = SUBSCRIPTION_PLANS[subscription?.tier || 'free'];
     const isUnlimited = subscription?.tier === 'unlimited';
-    const totalScans = isUnlimited ? -1 : scansUsed + scansRemaining;
-    const usagePercentage = isUnlimited ? 0 : (totalScans > 0 ? (scansUsed / totalScans) * 100 : 0);
+    
+    // Use sum of breakdown for accurate total
+    const actualScansUsed = (scanBreakdown?.sold_text || 0) + 
+                           (scanBreakdown?.current_text || 0) + 
+                           (scanBreakdown?.current_image || 0);
+    
+    // Get the plan limit (100 for Power Seller)
+    const planLimit = isUnlimited ? -1 : (() => {
+      const limits = { free: 3, hobby: 25, pro: 100, business: 100, unlimited: -1 };
+      return limits[subscription?.tier || 'free'] || 3;
+    })();
+    
+    // Calculate remaining scans properly
+    const actualScansRemaining = planLimit === -1 ? -1 : Math.max(0, planLimit - actualScansUsed);
+    const usagePercentage = isUnlimited ? 0 : (planLimit > 0 ? (actualScansUsed / planLimit) * 100 : 0);
 
     return (
       <View style={[styles.currentPlanCard, { backgroundColor: subtleText + '10' }]}>
@@ -158,7 +171,7 @@ export default function SubscriptionScreen() {
                 ∞ Unlimited Scans
               </Text>
               <Text style={[styles.scansUsedText, { color: textColor }]}>
-                {scansUsed} scans used this month
+                {actualScansUsed} scans used this month
               </Text>
             </View>
           ) : (
@@ -169,18 +182,18 @@ export default function SubscriptionScreen() {
                     style={[
                       styles.usageBarFill, 
                       { 
-                        backgroundColor: getScanUsageColor(scansRemaining, totalScans),
+                        backgroundColor: getScanUsageColor(actualScansRemaining, planLimit),
                         width: `${Math.min(usagePercentage, 100)}%`
                       }
                     ]} 
                   />
                 </View>
                 <Text style={[styles.usageText, { color: textColor }]}>
-                  {scansUsed} / {totalScans} scans used
+                  {actualScansUsed} / {planLimit} scans used
                 </Text>
               </View>
-              <Text style={[styles.scansRemaining, { color: getScanUsageColor(scansRemaining, totalScans) }]}>
-                {scansRemaining} scans remaining
+              <Text style={[styles.scansRemaining, { color: getScanUsageColor(actualScansRemaining, planLimit) }]}>
+                {actualScansRemaining} scans remaining
               </Text>
             </>
           )}
