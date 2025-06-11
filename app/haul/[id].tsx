@@ -16,6 +16,7 @@ interface HaulItem {
   id: string;
   title: string;
   image_url: string;
+  additional_images?: string[];
   purchase_price: number;
   sale_price: number;
   added_at: string;

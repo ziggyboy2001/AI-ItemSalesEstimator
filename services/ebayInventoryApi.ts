@@ -43,6 +43,7 @@ export interface HaulItem {
   id: string;
   title: string;
   image_url?: string;
+  additional_images?: string[];
   sale_price: number;
   purchase_price: number;
   ebay_item_id?: string;
@@ -218,12 +219,16 @@ export async function listHaulItemOnEbay(
   const sku = `haul_${haulItem.id}_${Date.now()}`;
   
   // Step 1: Create inventory item
+  const allImages = [];
+  if (haulItem.image_url) allImages.push(haulItem.image_url);
+  if (haulItem.additional_images) allImages.push(...haulItem.additional_images);
+
   const inventoryItem: EbayInventoryItem = {
     sku,
     product: {
       title: haulItem.title,
       description: config.description || generateDescription(haulItem),
-      imageUrls: haulItem.image_url ? [haulItem.image_url] : []
+      imageUrls: allImages.slice(0, 12) // eBay allows max 12 images
     },
     condition: config.condition,
     availability: {

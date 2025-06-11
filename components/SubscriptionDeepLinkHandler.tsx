@@ -1,11 +1,9 @@
 import { useEffect } from 'react';
 import { Linking, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useSubscription } from '@/contexts/SubscriptionContext';
 
 export default function SubscriptionDeepLinkHandler() {
   const router = useRouter();
-  const { refreshSubscription } = useSubscription();
 
   useEffect(() => {
     // Handle initial URL if app was opened via deep link
@@ -76,15 +74,7 @@ export default function SubscriptionDeepLinkHandler() {
         const billing = parsedUrl.queryParams?.billing as string;
         const packId = parsedUrl.queryParams?.packId as string;
         
-        // Refresh subscription data from backend
-        try {
-          await refreshSubscription();
-          console.log('🔄 Subscription data refreshed after payment');
-        } catch (error) {
-          console.error('❌ Failed to refresh subscription after payment:', error);
-        }
-        
-        // Navigate to subscription tab
+        // Navigate to subscription tab (which will refresh data automatically)
         router.push('/(tabs)/subscription');
         
         // Show success message

@@ -1127,6 +1127,13 @@ export default function SearchScreen() {
                   <>
                     <SearchStatsCard 
                       stats={stats} 
+                      firstItem={results.length > 0 ? {
+                        itemId: results[0].itemId,
+                        title: results[0].title,
+                        image: results[0].image,
+                        url: results[0].url,
+                        additionalImages: results[0].additionalImages
+                      } : undefined}
                       purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined} 
                       searchTitle={searchQuery} 
                       onViewAnalysis={stats?.data_source === 'ai_web_search' ? handleViewMarketAnalysis : undefined}
