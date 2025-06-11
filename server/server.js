@@ -17,6 +17,83 @@ const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
 // Middleware
 app.use(cors());
+
+// 🎯 WEBHOOK ROUTE FIRST - BEFORE express.json()
+app.post(
+  '/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    let event;
+
+    try {
+      event = stripeClient.webhooks.constructEvent(
+        req.body,
+        sig,
+        endpointSecret
+      );
+    } catch (err) {
+      console.error('❌ Webhook signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log(`\n🎯 ===== WEBHOOK EVENT DEBUG =====`);
+    console.log(`📨 Event Type: ${event.type}`);
+    console.log(`🆔 Event ID: ${event.id}`);
+    console.log(`📅 Created: ${new Date(event.created * 1000).toISOString()}`);
+    
+    if (event.data.object.metadata) {
+      console.log(`📋 Metadata:`, event.data.object.metadata);
+    } else {
+      console.log(`⚠️ NO METADATA FOUND`);
+    }
+    
+    console.log(`🔍 Object ID: ${event.data.object.id}`);
+    console.log(`=====================================\n`);
+
+    // Handle the event
+    switch (event.type) {
+      case 'checkout.session.completed':
+        console.log(`🛒 Processing checkout.session.completed...`);
+        await handleCheckoutCompleted(event.data.object);
+        break;
+
+      case 'customer.subscription.created':
+        console.log(`📋 Processing customer.subscription.created...`);
+        await handleSubscriptionCreated(event.data.object);
+        break;
+
+      case 'customer.subscription.updated':
+        console.log(`🔄 Processing customer.subscription.updated...`);
+        await handleSubscriptionUpdated(event.data.object);
+        break;
+
+      case 'customer.subscription.deleted':
+        console.log(`❌ Processing customer.subscription.deleted...`);
+        await handleSubscriptionDeleted(event.data.object);
+        break;
+
+      case 'invoice.payment_succeeded':
+        console.log(`💰 Processing invoice.payment_succeeded...`);
+        await handleInvoicePaymentSucceeded(event.data.object);
+        break;
+
+      case 'invoice.payment_failed':
+        console.log(`💸 Processing invoice.payment_failed...`);
+        await handleInvoicePaymentFailed(event.data.object);
+        break;
+
+      default:
+        console.log(`🤷 Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  }
+);
+
+// JSON middleware AFTER webhook route
 app.use(express.json());
 
 // Health check endpoint
@@ -327,63 +404,6 @@ app.post('/stripe/create-checkout-session', async (req, res) => {
   }
 });
 
-// Handle Stripe webhooks
-app.post(
-  '/stripe/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    let event;
-
-    try {
-      event = stripeClient.webhooks.constructEvent(
-        req.body,
-        sig,
-        endpointSecret
-      );
-    } catch (err) {
-      console.error('❌ Webhook signature verification failed:', err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    console.log(`📨 Received webhook: ${event.type}`);
-
-    // Handle the event
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutCompleted(event.data.object);
-        break;
-
-      case 'customer.subscription.created':
-        await handleSubscriptionCreated(event.data.object);
-        break;
-
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object);
-        break;
-
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object);
-        break;
-
-      case 'invoice.payment_succeeded':
-        await handleInvoicePaymentSucceeded(event.data.object);
-        break;
-
-      case 'invoice.payment_failed':
-        await handleInvoicePaymentFailed(event.data.object);
-        break;
-
-      default:
-        console.log(`🤷 Unhandled event type: ${event.type}`);
-    }
-
-    res.json({ received: true });
-  }
-);
-
 // Cancel subscription
 app.post('/stripe/cancel-subscription', async (req, res) => {
   try {
@@ -482,13 +502,13 @@ app.get('/success', (req, res) => {
         <br><br>
         You can now return to the BidPeek app to start using your new features.
       </div>
-      <a href="bidpeek://subscription/success" class="btn">Return to App</a>
+      <a href="bidpeek://subscription/success?tier=${tier || ''}&billing=${billing || ''}" class="btn">Return to App</a>
       
       <script>
-        // Auto-redirect after 3 seconds
+        // Auto-redirect after 2 seconds
         setTimeout(() => {
-          window.location.href = 'bidpeek://subscription/success';
-        }, 3000);
+          window.location.href = 'bidpeek://subscription/success?tier=${tier || ''}&billing=${billing || ''}';
+        }, 2000);
       </script>
     </body>
     </html>

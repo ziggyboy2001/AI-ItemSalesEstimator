@@ -10,7 +10,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Crown, Zap, Star, ExternalLink, Check, X } from 'lucide-react-native';
+import { Crown, Zap, Star, ExternalLink, Check, ShieldCheck } from 'lucide-react-native';
 
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useThemeColor } from '@/constants/useThemeColor';
@@ -326,20 +326,19 @@ export default function SubscriptionScreen() {
   };
 
   const renderScanPacks = () => {
-    // Don't show scan packs for unlimited users or users with plenty of scans
+    // Only hide scan packs for unlimited users (they don't need more scans)
     if (subscription?.tier === 'unlimited') {
       return null;
-    }
-    
-    if (subscription?.tier !== 'free' && scansRemaining > 3) {
-      return null; // Don't show scan packs if user has plenty of scans
     }
 
     return (
       <View style={styles.scanPacksSection}>
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Need More Scans?</Text>
+        <Text style={[styles.sectionTitle, { color: textColor }]}>Extra Scans</Text>
         <Text style={[styles.sectionSubtitle, { color: subtleText }]}>
-          Purchase additional scans without changing your plan
+          {scansRemaining <= 3 
+            ? 'Purchase additional scans without changing your plan'
+            : 'Top up your account with extra scans for busy months'
+          }
         </Text>
 
         <View style={styles.scanPacksGrid}>
@@ -394,8 +393,11 @@ export default function SubscriptionScreen() {
           {(['hobby', 'pro', 'business', 'unlimited'] as const).map(renderSubscriptionTier)}
         </View>
 
-        <View style={styles.savingsCallout}>
-          <Text style={[styles.savingsTitle, { color: tintColor }]}>💳 Secure Online Payment</Text>
+        <View style={[styles.savingsCallout, { backgroundColor: subtleText + '10' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <ShieldCheck size={24} color={tintColor} style={{ marginBottom: 8, marginRight: 8 }} />
+            <Text style={[styles.savingsTitle, { color: tintColor }]}>Secure Online Payment</Text>
+          </View>
           <Text style={[styles.savingsText, { color: textColor }]}>
             All payments are processed securely through Stripe. You'll be redirected to complete your purchase safely.
           </Text>
@@ -628,7 +630,6 @@ const styles = StyleSheet.create({
   savingsCallout: {
     margin: 20,
     padding: 20,
-    backgroundColor: '#f8f9fa',
     borderRadius: 16,
     marginBottom: 40,
   },

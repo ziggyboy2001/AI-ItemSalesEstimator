@@ -18,6 +18,7 @@ import AuthScreen from './AuthScreen';
 import { useAuth } from '@/hooks/useAuth';
 import { View, ActivityIndicator } from 'react-native';
 import EbayOAuthHandler from '@/components/EbayOAuthHandler';
+import SubscriptionDeepLinkHandler from '@/components/SubscriptionDeepLinkHandler';
 
 // Keep the splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
@@ -98,6 +99,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
+      <SubscriptionDeepLinkHandler />
       <AppContent />
     </ThemeProvider>
   );
