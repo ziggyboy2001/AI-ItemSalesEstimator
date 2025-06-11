@@ -73,9 +73,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return limits[subscription.tier] || 3;
   };
   
-  const scansLimit = getScansLimit();
-  const scansRemaining = scansLimit === -1 ? -1 : Math.max(0, scansLimit - scansUsed);
-  const canScan = scansLimit === -1 ? true : canPerformScan(scansUsed, scansLimit);
+  // Use scansRemaining directly from backend (which includes bonus scans)  
+  const scansRemaining = subscription?.scansRemaining ?? 0;
+  const scansLimit = subscription?.tier === 'unlimited' ? -1 : (scansUsed + scansRemaining);
+  const canScan = subscription?.tier === 'unlimited' ? true : scansRemaining > 0;
 
   // Load subscription when device ID is ready
   useEffect(() => {
@@ -90,28 +91,23 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     try {
       setLoading(true);
       
-      // Primary: Load from database
-      const dbSubscription = await SubscriptionService.getUserSubscription(null, deviceId);
-      const currentUsage = await SubscriptionService.getCurrentMonthUsage(null, deviceId);
-      const breakdown = await SubscriptionService.getUsageBreakdown(null, deviceId);
+      // Load comprehensive status from backend (single source of truth)
+      const status = await SubscriptionService.getSubscriptionStatus(null, deviceId);
       
-      // Update subscription with current usage
-      const subscriptionWithUsage = {
-        ...dbSubscription,
-        scansUsed: currentUsage,
-        scansRemaining: dbSubscription.tier === 'unlimited' ? -1 : Math.max(0, getScansLimit() - currentUsage)
-      };
-      
-      setSubscription(subscriptionWithUsage);
-      setScanBreakdown(breakdown);
+      setSubscription(status.subscription);
+      setScanBreakdown(status.usage.breakdown);
       
       // Backup to AsyncStorage
-      await AsyncStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(subscriptionWithUsage));
+      await AsyncStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(status.subscription));
       
-      console.log('✅ Subscription loaded from database:', {
-        tier: dbSubscription.tier,
-        usage: currentUsage,
-        breakdown
+      console.log('✅ Subscription status loaded from backend:', {
+        tier: status.subscription.tier,
+        baseLimit: status.scans.baseLimit,
+        bonusScans: status.scans.bonusScans,
+        totalLimit: status.scans.totalLimit,
+        used: status.scans.used,
+        remaining: status.scans.remaining,
+        breakdown: status.usage.breakdown
       });
       
     } catch (error) {
@@ -133,12 +129,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             await resetToFree();
           }
         } else {
-          await createFreeSubscription();
+          // If no stored subscription, load from backend which will create free subscription if needed
+          await loadSubscription();
+          return;
         }
-      } catch (fallbackError) {
-        console.error('Failed AsyncStorage fallback:', fallbackError);
-        await createFreeSubscription();
-      }
+              } catch (fallbackError) {
+          console.error('Failed AsyncStorage fallback:', fallbackError);
+          // Backend will create free subscription if needed
+          const status = await SubscriptionService.getSubscriptionStatus(null, deviceId);
+          setSubscription(status.subscription);
+          setScanBreakdown(status.usage.breakdown);
+        }
     } finally {
       setLoading(false);
     }
@@ -152,12 +153,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       await AsyncStorage.removeItem(SUBSCRIPTION_STORAGE_KEY);
       console.log('🗑️ Cleared cached subscription data');
       
-      const freeSubscription = await SubscriptionService.createFreeSubscription(null, deviceId);
-      setSubscription(freeSubscription);
-      setScanBreakdown({ current_text: 0, current_image: 0, sold_text: 0 });
+      // Backend will create free subscription automatically when fetching status
+      const status = await SubscriptionService.getSubscriptionStatus(null, deviceId);
+      setSubscription(status.subscription);
+      setScanBreakdown(status.usage.breakdown);
       
       // Backup to AsyncStorage
-      await AsyncStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(freeSubscription));
+      await AsyncStorage.setItem(SUBSCRIPTION_STORAGE_KEY, JSON.stringify(status.subscription));
       
       console.log('✅ Created free subscription');
     } catch (error) {
@@ -253,21 +255,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (!deviceId) return;
 
     try {
-      const currentUsage = await SubscriptionService.getCurrentMonthUsage(null, deviceId);
-      const breakdown = await SubscriptionService.getUsageBreakdown(null, deviceId);
-      
-      if (subscription) {
-        const updatedSubscription = {
-          ...subscription,
-          scansUsed: currentUsage,
-          scansRemaining: subscription.tier === 'unlimited' ? -1 : Math.max(0, getScansLimit() - currentUsage)
-        };
-        
-        setSubscription(updatedSubscription);
-        setScanBreakdown(breakdown);
-        
-        console.log('🔄 Usage refreshed:', { usage: currentUsage, breakdown });
-      }
+      // Use backend-driven status refresh instead of manual calculation
+      await refreshSubscription();
+      console.log('🔄 Usage refreshed via subscription refresh');
     } catch (error) {
       console.error('❌ Failed to refresh usage:', error);
     }

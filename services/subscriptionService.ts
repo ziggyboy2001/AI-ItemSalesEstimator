@@ -372,24 +372,126 @@ export class SubscriptionService {
   }
 
   /**
-   * Get comprehensive usage information
+   * Get total bonus scans from scan credits table
+   */
+  static async getBonusScansFromCredits(deviceId: string): Promise<number> {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/scan_credits?device_id=eq.${deviceId}&select=scan_credits`,
+        {
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          }
+        }
+      );
+
+      if (!response.ok) {
+        console.warn('Failed to fetch scan credits:', response.statusText);
+        return 0;
+      }
+
+      const credits = await response.json();
+      const totalCredits = credits.reduce((sum: number, credit: { scan_credits: number }) => 
+        sum + credit.scan_credits, 0
+      );
+
+      console.log(`📊 Bonus scans from credits for device ${deviceId}: ${totalCredits}`);
+      return totalCredits;
+      
+    } catch (error) {
+      console.error('Error fetching bonus scans from credits:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get comprehensive subscription status from backend (single source of truth)
+   */
+  static async getSubscriptionStatus(
+    userId: string | null,
+    deviceId: string
+  ): Promise<{
+    subscription: UserSubscription;
+    usage: {
+      used: number;
+      breakdown: { current_text: number; current_image: number; sold_text: number };
+      month: string;
+    };
+    scans: {
+      baseLimit: number;
+      bonusScans: number;
+      totalLimit: number;
+      used: number;
+      remaining: number;
+    };
+    canScan: boolean;
+  }> {
+    try {
+      const queryParam = userId ? `?userId=${userId}` : '';
+             const response = await fetch(
+         `http://localhost:3000/subscription-status/${deviceId}${queryParam}`,
+         {
+           headers: {
+             'Content-Type': 'application/json',
+           },
+         }
+       );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch subscription status: ${response.statusText}`);
+      }
+
+      const status = await response.json();
+      
+             // Convert to UserSubscription format
+       const subscription: UserSubscription = {
+         userId: status.subscription.device_id || deviceId,
+         tier: status.subscription.subscription_type,
+         paymentMethod: 'external',
+         isActive: status.subscription.is_active || true,
+         currentPeriodStart: new Date(status.subscription.current_period_start || Date.now()),
+         currentPeriodEnd: new Date(status.subscription.current_period_end || Date.now() + 30 * 24 * 60 * 60 * 1000),
+         scansUsed: status.scans.used,
+         scansRemaining: status.scans.remaining,
+         autoRenew: status.subscription.auto_renew || false,
+         features: []
+       };
+
+      return {
+        ...status,
+        subscription
+      };
+    } catch (error) {
+      console.error('Error fetching subscription status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get comprehensive usage information including bonus scans from scan credits
+   * @deprecated Use getSubscriptionStatus instead for single source of truth
    */
   private static async getUsageInfo(
     userId: string | null,
     deviceId: string
   ): Promise<ScanUsageInfo> {
-    const [totalUsage, breakdown] = await Promise.all([
+    const [totalUsage, breakdown, bonusScans] = await Promise.all([
       this.getCurrentMonthUsage(userId, deviceId),
-      this.getUsageBreakdown(userId, deviceId)
+      this.getUsageBreakdown(userId, deviceId),
+      this.getBonusScansFromCredits(deviceId)
     ]);
 
     const subscription = await this.getUserSubscription(userId, deviceId);
-    const limit = SCAN_LIMITS[subscription.tier];
+    const baseLimit = SCAN_LIMITS[subscription.tier];
+    
+    // Add bonus scans to the limit (unlimited tier stays unlimited)
+    const totalLimit = baseLimit === -1 ? -1 : baseLimit + bonusScans;
     
     return {
       used: totalUsage,
-      limit,
-      remaining: limit === -1 ? -1 : Math.max(0, limit - totalUsage),
+      limit: totalLimit,
+      remaining: totalLimit === -1 ? -1 : Math.max(0, totalLimit - totalUsage),
       breakdown
     };
   }

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful - BidPeek</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 400px;
+            width: 100%;
+        }
+        .icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .loading {
+            color: #007AFF;
+            margin-top: 20px;
+        }
+        .button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .success {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        }
+    </style>
+</head>
+<body class="success">
+    <div class="container">
+        <div class="icon" id="icon">🎉</div>
+        <h1 id="title">Payment Successful!</h1>
+        <p id="message">Your scan pack has been added to your account.</p>
+        <p class="loading" id="status">Redirecting you back to the app...</p>
+        
+        <div id="buttons" style="display: none;">
+            <a href="#" id="returnButton" class="button">
+                Return to BidPeek App
+            </a>
+        </div>
+    </div>
+
+    <script>
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function redirectToApp() {
+            const tier = getUrlParameter('tier');
+            const billing = getUrlParameter('billing');
+            const packId = getUrlParameter('packId');
+            const userId = getUrlParameter('userId');
+            
+            // Construct deep link URL
+            let deepLinkUrl = 'bidpeek://subscription/success';
+            
+            // Add parameters
+            const params = new URLSearchParams();
+            if (tier) params.append('tier', tier);
+            if (billing) params.append('billing', billing);
+            if (packId) params.append('packId', packId);
+            if (userId) params.append('userId', userId);
+            
+            if (params.toString()) {
+                deepLinkUrl += '?' + params.toString();
+            }
+
+            console.log('Redirecting to:', deepLinkUrl);
+
+            // Update message based on what was purchased
+            if (tier) {
+                document.getElementById('message').textContent = `Your ${tier} subscription is now active!`;
+            } else if (packId) {
+                document.getElementById('message').textContent = 'Your scan pack has been added to your account.';
+            }
+
+            // Try to open the app
+            window.location.href = deepLinkUrl;
+            
+            // Show manual button after a delay
+            setTimeout(() => {
+                document.getElementById('status').textContent = 'If the app didn\'t open automatically, tap the button below:';
+                document.getElementById('buttons').style.display = 'block';
+                document.getElementById('returnButton').href = deepLinkUrl;
+            }, 3000);
+        }
+
+        // Process redirect when page loads
+        window.addEventListener('load', redirectToApp);
+    </script>
+</body>
+</html> 

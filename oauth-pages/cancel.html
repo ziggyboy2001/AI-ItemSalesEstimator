@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Cancelled - BidPeek</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #ff7b7b 0%, #c94b4b 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 400px;
+            width: 100%;
+        }
+        .icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .loading {
+            color: #007AFF;
+            margin-top: 20px;
+        }
+        .button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button.secondary {
+            background: #6c757d;
+        }
+        .button.secondary:hover {
+            background: #545b62;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon" id="icon">❌</div>
+        <h1 id="title">Payment Cancelled</h1>
+        <p id="message">No worries! You can try again anytime.</p>
+        <p class="loading" id="status">Redirecting you back to the app...</p>
+        
+        <div id="buttons" style="display: none;">
+            <a href="#" id="returnButton" class="button">
+                Return to BidPeek App
+            </a>
+            <br>
+            <a href="javascript:history.back()" class="button secondary" id="retryButton">
+                Go Back and Try Again
+            </a>
+        </div>
+    </div>
+
+    <script>
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function redirectToApp() {
+            const userId = getUrlParameter('userId');
+            
+            // Construct deep link URL
+            let deepLinkUrl = 'bidpeek://subscription/cancel';
+            
+            // Add userId if present
+            if (userId) {
+                deepLinkUrl += '?userId=' + encodeURIComponent(userId);
+            }
+
+            console.log('Redirecting to:', deepLinkUrl);
+
+            // Show buttons immediately for cancelled payment
+            document.getElementById('status').textContent = '';
+            document.getElementById('buttons').style.display = 'block';
+            document.getElementById('returnButton').href = deepLinkUrl;
+            
+            // Auto-redirect after delay
+            setTimeout(() => {
+                window.location.href = deepLinkUrl;
+            }, 5000);
+        }
+
+        // Process redirect when page loads
+        window.addEventListener('load', redirectToApp);
+    </script>
+</body>
+</html> 
