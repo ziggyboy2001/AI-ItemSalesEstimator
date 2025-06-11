@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eBay OAuth - BidPeek</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 400px;
+            width: 100%;
+        }
+        .icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .loading {
+            color: #007AFF;
+            margin-top: 20px;
+        }
+        .button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button.secondary {
+            background: #6c757d;
+        }
+        .button.secondary:hover {
+            background: #545b62;
+        }
+        .error {
+            background: linear-gradient(135deg, #ff7b7b 0%, #c94b4b 100%);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon" id="icon">⏳</div>
+        <h1 id="title">Processing eBay Authorization...</h1>
+        <p id="message">Please wait while we process your eBay authorization.</p>
+        <p class="loading" id="status">Redirecting you back to the app...</p>
+        
+        <div id="buttons" style="display: none;">
+            <a href="#" id="returnButton" class="button">
+                Return to BidPeek App
+            </a>
+            <br>
+            <a href="javascript:history.back()" class="button secondary" id="retryButton" style="display: none;">
+                Go Back and Try Again
+            </a>
+        </div>
+    </div>
+
+    <script>
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function showSuccess(code, state) {
+            document.body.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            document.getElementById('icon').textContent = '✅';
+            document.getElementById('title').textContent = 'eBay Connected Successfully!';
+            document.getElementById('message').textContent = 'Your eBay account has been connected to BidPeek.';
+            
+            // Construct deep link URL
+            let deepLinkUrl = `bidpeek://oauth/success?code=${encodeURIComponent(code)}`;
+            if (state) {
+                deepLinkUrl += `&state=${encodeURIComponent(state)}`;
+            }
+
+            console.log('Redirecting to:', deepLinkUrl);
+
+            // Try to open the app
+            window.location.href = deepLinkUrl;
+            
+            // Show manual button after a delay
+            setTimeout(() => {
+                document.getElementById('status').textContent = 'If the app didn\'t open automatically, tap the button below:';
+                document.getElementById('buttons').style.display = 'block';
+                document.getElementById('returnButton').href = deepLinkUrl;
+            }, 3000);
+        }
+
+        function showDeclined() {
+            document.body.style.background = 'linear-gradient(135deg, #ff7b7b 0%, #c94b4b 100%)';
+            document.getElementById('icon').textContent = '❌';
+            document.getElementById('title').textContent = 'eBay Authorization Cancelled';
+            document.getElementById('message').textContent = 'You chose not to connect your eBay account. You can try again anytime from the app settings.';
+            
+            const deepLinkUrl = 'bidpeek://oauth/declined';
+            
+            // Show buttons immediately for declined
+            document.getElementById('status').textContent = '';
+            document.getElementById('buttons').style.display = 'block';
+            document.getElementById('returnButton').href = deepLinkUrl;
+            document.getElementById('retryButton').style.display = 'inline-block';
+            
+            // Auto-redirect after delay
+            setTimeout(() => {
+                window.location.href = deepLinkUrl;
+            }, 5000);
+        }
+
+        function showError(errorMessage) {
+            document.body.style.background = 'linear-gradient(135deg, #ff7b7b 0%, #c94b4b 100%)';
+            document.getElementById('icon').textContent = '⚠️';
+            document.getElementById('title').textContent = 'eBay Authorization Error';
+            document.getElementById('message').textContent = errorMessage;
+            document.getElementById('status').textContent = '';
+            
+            document.getElementById('buttons').style.display = 'block';
+            document.getElementById('returnButton').href = 'bidpeek://oauth/declined';
+            document.getElementById('returnButton').textContent = 'Return to App';
+            document.getElementById('retryButton').style.display = 'inline-block';
+        }
+
+        function processOAuth() {
+            const code = getUrlParameter('code');
+            const state = getUrlParameter('state');
+            const error = getUrlParameter('error');
+            const errorDescription = getUrlParameter('error_description');
+            
+            console.log('OAuth parameters:', { code: !!code, state, error, errorDescription });
+            
+            if (error) {
+                showError(`Authorization failed: ${error}${errorDescription ? ' - ' + errorDescription : ''}`);
+                return;
+            }
+            
+            if (!code) {
+                // Check if this is a declined flow (no code, no error)
+                if (window.location.search.includes('error') || 
+                    window.location.pathname.includes('declined') ||
+                    document.referrer.includes('declined')) {
+                    showDeclined();
+                } else {
+                    showError('No authorization code was received from eBay.');
+                }
+                return;
+            }
+
+            // Success case
+            showSuccess(code, state);
+        }
+
+        // Process OAuth when page loads
+        window.addEventListener('load', processOAuth);
+    </script>
+</body>
+</html> 

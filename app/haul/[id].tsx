@@ -3,11 +3,14 @@ import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, Activ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
-import { ArrowLeft, Calendar, DollarSign, TrendingUp, Package, Target } from 'lucide-react-native';
+import { ArrowLeft, Calendar, DollarSign, TrendingUp, Package, Target, ExternalLink, CheckCircle2 } from 'lucide-react-native';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { supabase } from '@/services/supabaseClient';
 import { PieChart as GiftedPieChart } from 'react-native-gifted-charts';
 import { HaulItemSkeleton, MetricCardSkeleton, SkeletonList, Skeleton } from '@/components/SkeletonLoader';
+import EbayListingModal, { ListingConfiguration } from '@/components/EbayListingModal';
+import EbayOAuthModal from '@/components/EbayOAuthModal';
+import { listHaulItem, checkEbayConnection } from '@/services/ebayIntegrationService';
 
 interface HaulItem {
   id: string;
@@ -16,6 +19,10 @@ interface HaulItem {
   purchase_price: number;
   sale_price: number;
   added_at: string;
+  listed_on_ebay?: boolean;
+  listing_status?: string;
+  ebay_listing_id?: string;
+  listing_price?: number;
 }
 
 interface Haul {
@@ -34,6 +41,12 @@ export default function HaulDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [haul, setHaul] = useState<Haul | null>(null);
   const [items, setItems] = useState<HaulItem[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [ebayConnected, setEbayConnected] = useState(false);
+  const [listingModalVisible, setListingModalVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<HaulItem | null>(null);
+  const [listingLoading, setListingLoading] = useState(false);
+  const [oauthModalVisible, setOauthModalVisible] = useState(false);
   
   // Theme colors
   const backgroundColor = useThemeColor('background');
@@ -46,7 +59,22 @@ export default function HaulDetailsScreen() {
 
   useEffect(() => {
     fetchHaulDetails();
+    checkUserAndEbayConnection();
   }, [id]);
+
+  const checkUserAndEbayConnection = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      setUserId(user.id);
+      try {
+        const status = await checkEbayConnection(user.id);
+        console.log('📊 eBay connection status:', status);
+        setEbayConnected(status.connected);
+      } catch (error) {
+        console.error('Error checking eBay connection:', error);
+      }
+    }
+  };
 
   const fetchHaulDetails = async () => {
     if (!id) return;
@@ -64,7 +92,7 @@ export default function HaulDetailsScreen() {
       if (haulError) throw haulError;
       setHaul(haulData);
       
-      // Fetch haul items
+      // Fetch haul items with eBay listing info
       const { data: itemsData, error: itemsError } = await supabase
         .from('haul_items')
         .select('*')
@@ -80,6 +108,50 @@ export default function HaulDetailsScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleListOnEbay = (item: HaulItem) => {
+    console.log('🔗 List on eBay clicked, ebayConnected:', ebayConnected);
+    if (!ebayConnected) {
+      setSelectedItem(item);
+      setOauthModalVisible(true);
+      return;
+    }
+    
+    setSelectedItem(item);
+    setListingModalVisible(true);
+  };
+
+  const handleSubmitListing = async (config: ListingConfiguration) => {
+    if (!selectedItem || !userId) return;
+    
+    try {
+      setListingLoading(true);
+      const result = await listHaulItem(userId, selectedItem.id, config);
+      
+      if (result.success) {
+        Alert.alert('Success', 'Item listed on eBay successfully!');
+        setListingModalVisible(false);
+        setSelectedItem(null);
+        // Refresh haul details to show updated listing status
+        fetchHaulDetails();
+      } else {
+        Alert.alert('Error', result.error || 'Failed to list item on eBay');
+      }
+    } catch (error) {
+      console.error('Error listing item:', error);
+      Alert.alert('Error', 'Failed to list item on eBay');
+    } finally {
+      setListingLoading(false);
+    }
+  };
+
+  const handleOAuthSuccess = async () => {
+    // Refresh eBay connection status
+    await checkUserAndEbayConnection();
+    // Show listing modal after successful OAuth
+    setOauthModalVisible(false);
+    setListingModalVisible(true);
   };
 
   if (loading) {
@@ -222,6 +294,38 @@ export default function HaulDetailsScreen() {
             Margin: {item.margin.toFixed(1)}%
           </Text>
         </View>
+        
+        {/* eBay Listing Status/Button */}
+        <View style={styles.itemActions}>
+          {item.listed_on_ebay ? (
+            <View style={[styles.listedBadge, { backgroundColor: successColor + '20' }]}>
+              <CheckCircle2 size={16} color={successColor} />
+              <Text style={[styles.listedText, { color: successColor }]}>
+                Listed on eBay
+              </Text>
+              {item.listing_price && (
+                <Text style={[styles.listingPrice, { color: successColor }]}>
+                  ${item.listing_price.toFixed(2)}
+                </Text>
+              )}
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.listButton, { 
+                backgroundColor: tintColor + '20',
+                borderColor: tintColor
+              }]}
+              onPress={() => handleListOnEbay(item)}
+            >
+              <ExternalLink size={16} color={tintColor} />
+              <Text style={[styles.listButtonText, { 
+                color: tintColor 
+              }]}>
+                List on eBay
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </Animated.View>
   );
@@ -358,6 +462,31 @@ export default function HaulDetailsScreen() {
           )}
         </Animated.View>
       </ScrollView>
+
+      {/* eBay Listing Modal */}
+      <EbayListingModal
+        visible={listingModalVisible}
+        onClose={() => {
+          setListingModalVisible(false);
+          setSelectedItem(null);
+        }}
+        onSubmit={handleSubmitListing}
+        item={selectedItem}
+        loading={listingLoading}
+      />
+
+      {/* eBay OAuth Modal */}
+      {userId && (
+        <EbayOAuthModal
+          visible={oauthModalVisible}
+          onClose={() => {
+            setOauthModalVisible(false);
+            setSelectedItem(null);
+          }}
+          onSuccess={handleOAuthSuccess}
+          userId={userId}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -524,6 +653,40 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
+    textAlign: 'center',
+  },
+  itemActions: {
+    marginTop: 8,
+  },
+  listedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    gap: 6,
+  },
+  listedText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  listingPrice: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 'auto',
+  },
+  listButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 6,
+  },
+  listButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
     textAlign: 'center',
   },
 }); 

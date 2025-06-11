@@ -3,13 +3,11 @@
 import { Buffer } from 'buffer';
 import { OPENAI_API_KEY } from '@env';
 
-// Update URLs to use production endpoints
+// Original eBay Browse API configuration (DO NOT MODIFY - used for existing search functionality)
 const EBAY_API_URL = 'https://api.ebay.com/buy/browse/v1';
 const EBAY_AUTH_URL = 'https://api.ebay.com/identity/v1/oauth2/token';
-
-// Production credentials from environment
-const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID || 'KeithZah-bidpeek-PRD-9efff03ae-f2d8c8c1';
-const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET || 'PRD-efff03ae1b85-75a1-442e-8910-1b22';
+const EBAY_CLIENT_ID = 'KeithZah-bidpeek-PRD-9efff03ae-f2d8c8c1';
+const EBAY_CLIENT_SECRET = 'PRD-efff03ae1b85-75a1-442e-8910-1b22';
 
 // Add fetch timeout helper
 const fetchWithTimeout = async (url: string, options: RequestInit, timeout = 30000) => {
@@ -638,3 +636,41 @@ export async function simplifyItemTitle(title: string): Promise<string> {
 }
 
 export {};
+
+// ==== SEPARATE EBAY LISTING CONFIGURATION (does not affect search functionality) ====
+
+// Environment configuration for eBay listing APIs only
+const IS_SANDBOX = __DEV__ || process.env.NODE_ENV !== 'production';
+
+export const EBAY_LISTING_CONFIG = {
+  production: {
+    clientId: 'KeithZah-bidpeek-PRD-9efff03ae-f2d8c8c1',
+    clientSecret: process.env.EBAY_CLIENT_SECRET || '',
+    authUrl: 'https://api.ebay.com/identity/v1/oauth2/token',
+    inventoryUrl: 'https://api.ebay.com/sell/inventory/v1',
+    accountUrl: 'https://api.ebay.com/sell/account/v1',
+    oauthUrl: 'https://auth.ebay.com/oauth2/authorize',
+    redirectUri: 'https://bidpeek.app'
+  },
+  sandbox: {
+    clientId: 'KeithZah-bidpeek-SBX-aa6d579f2-15df5368',
+    clientSecret: process.env.EBAY_SANDBOX_CLIENT_SECRET || '',
+    authUrl: 'https://api.sandbox.ebay.com/identity/v1/oauth2/token',
+    inventoryUrl: 'https://api.sandbox.ebay.com/sell/inventory/v1',
+    accountUrl: 'https://api.sandbox.ebay.com/sell/account/v1',
+    oauthUrl: 'https://auth.sandbox.ebay.com/oauth2/authorize',
+    redirectUri: 'https://stately-daifuku-7ed3de.netlify.app'
+  }
+};
+
+export const LISTING_CONFIG = EBAY_LISTING_CONFIG[IS_SANDBOX ? 'sandbox' : 'production'];
+
+// OAuth scopes for user listing permissions only
+export const EBAY_USER_SCOPES = [
+  'https://api.ebay.com/oauth/api_scope',
+  'https://api.ebay.com/oauth/api_scope/sell.item',
+  'https://api.ebay.com/oauth/api_scope/sell.inventory',
+  'https://api.ebay.com/oauth/api_scope/sell.account',
+  'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+  'https://api.ebay.com/oauth/api_scope/commerce.identity.readonly'
+].join(' ');
