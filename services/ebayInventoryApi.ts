@@ -14,6 +14,7 @@ export interface EbayInventoryItem {
       quantity: number;
     };
   };
+  locale?: string;
 }
 
 export interface EbayOffer {
@@ -54,10 +55,13 @@ export interface ListingConfiguration {
   condition: 'NEW' | 'USED_LIKE_NEW' | 'USED_EXCELLENT' | 'USED_VERY_GOOD' | 'USED_GOOD' | 'USED_ACCEPTABLE';
   price?: number; // Override haul item price if needed
   description?: string;
+  title?: string; // Override haul item title if needed
+  images?: string[]; // User-provided images
   fulfillmentPolicyId?: string;
   paymentPolicyId?: string;
   returnPolicyId?: string;
   merchantLocationKey?: string;
+  country?: string; // User's country for location-based listings
 }
 
 /**
@@ -67,6 +71,15 @@ export async function createInventoryItem(
   userAccessToken: string,
   inventoryItem: EbayInventoryItem
 ): Promise<{ success: boolean; warnings?: any[] }> {
+  console.log('📦 createInventoryItem: Making API call to eBay...');
+  console.log('📦 createInventoryItem: URL:', `${LISTING_CONFIG.inventoryUrl}/inventory_item/${inventoryItem.sku}`);
+  console.log('📦 createInventoryItem: Inventory item:', {
+    sku: inventoryItem.sku,
+    title: inventoryItem.product.title,
+    imageCount: inventoryItem.product.imageUrls.length,
+    condition: inventoryItem.condition
+  });
+  
   const response = await fetch(`${LISTING_CONFIG.inventoryUrl}/inventory_item/${inventoryItem.sku}`, {
     method: 'PUT',
     headers: {
@@ -77,17 +90,23 @@ export async function createInventoryItem(
     body: JSON.stringify(inventoryItem)
   });
 
+  console.log('📦 createInventoryItem: Response status:', response.status);
+
   if (!response.ok) {
     const error = await response.text();
+    console.log('❌ createInventoryItem: Error response:', error);
     throw new Error(`Failed to create inventory item: ${error}`);
   }
 
   // PUT returns 204 No Content on success, or warnings if any
   if (response.status === 204) {
+    console.log('✅ createInventoryItem: Success (204 No Content)');
     return { success: true };
   }
 
-  return await response.json();
+  const result = await response.json();
+  console.log('✅ createInventoryItem: Success with result:', result.warnings ? 'with warnings' : '');
+  return result;
 }
 
 /**
@@ -216,19 +235,46 @@ export async function listHaulItemOnEbay(
   listingId: string; 
   itemWebUrl?: string 
 }> {
-  const sku = `haul_${haulItem.id}_${Date.now()}`;
+  console.log('🏪 listHaulItemOnEbay: Starting with params:', {
+    haulItemId: haulItem.id,
+    haulItemTitle: haulItem.title,
+    configPrice: config.price,
+    configCategoryId: config.categoryId,
+    configCondition: config.condition,
+    hasDescription: !!config.description,
+    hasImages: !!(haulItem.image_url || haulItem.additional_images?.length)
+  });
+  
+  console.log('🔍 DEBUG: Function version check - location creation enabled');
+  
+  // Try to create a default location first (required for offers)
+  try {
+    console.log('🏗️ listHaulItemOnEbay: Attempting to create default location...');
+    const { merchantLocationKey } = await createDefaultLocation(userAccessToken, config.country || 'US');
+    console.log('✅ listHaulItemOnEbay: Location setup completed with key:', merchantLocationKey);
+  } catch (error) {
+    console.log('⚠️ listHaulItemOnEbay: Location creation failed, will use default:', error);
+  }
+  
+  // Create eBay-compliant SKU: alphanumeric only, max 50 chars
+  const cleanId = haulItem.id.replace(/[^a-zA-Z0-9]/g, ''); // Remove hyphens and other special chars
+  const timestamp = Date.now().toString();
+  const sku = `haul${cleanId}${timestamp}`.substring(0, 50); // Ensure max 50 chars
+  console.log('📝 listHaulItemOnEbay: Generated SKU:', sku);
   
   // Step 1: Create inventory item
+  console.log('🖼️ listHaulItemOnEbay: Preparing images...');
   const allImages = [];
   if (haulItem.image_url) allImages.push(haulItem.image_url);
   if (haulItem.additional_images) allImages.push(...haulItem.additional_images);
+  console.log('✅ listHaulItemOnEbay: Found', allImages.length, 'images');
 
   const inventoryItem: EbayInventoryItem = {
     sku,
     product: {
-      title: haulItem.title,
+      title: config.title || haulItem.title,
       description: config.description || generateDescription(haulItem),
-      imageUrls: allImages.slice(0, 12) // eBay allows max 12 images
+      imageUrls: config.images || allImages.slice(0, 12) // Use user images if provided, otherwise eBay allows max 12 images
     },
     condition: config.condition,
     availability: {
@@ -238,9 +284,13 @@ export async function listHaulItemOnEbay(
     }
   };
 
+  console.log('📦 listHaulItemOnEbay: Creating inventory item...');
   await createInventoryItem(userAccessToken, inventoryItem);
+  console.log('✅ listHaulItemOnEbay: Inventory item created');
 
   // Step 2: Create offer
+  console.log('💰 listHaulItemOnEbay: Creating offer...');
+  
   const offer: EbayOffer = {
     sku,
     marketplaceId: 'EBAY_US',
@@ -257,13 +307,24 @@ export async function listHaulItemOnEbay(
       returnPolicyId: config.returnPolicyId
     },
     categoryId: config.categoryId,
-    merchantLocationKey: config.merchantLocationKey
+    merchantLocationKey: 'default'  // Use default location key for eBay sandbox
   };
 
+  console.log('📄 listHaulItemOnEbay: Offer config:', {
+    sku: offer.sku,
+    price: offer.pricingSummary.price.value,
+    categoryId: offer.categoryId,
+    merchantLocationKey: offer.merchantLocationKey,
+    hasPolicies: !!(config.fulfillmentPolicyId || config.paymentPolicyId || config.returnPolicyId)
+  });
+
   const { offerId } = await createOffer(userAccessToken, offer);
+  console.log('✅ listHaulItemOnEbay: Offer created with ID:', offerId);
 
   // Step 3: Publish the listing
+  console.log('🚀 listHaulItemOnEbay: Publishing offer...');
   const { listingId, itemWebUrl } = await publishOffer(userAccessToken, offerId);
+  console.log('✅ listHaulItemOnEbay: Listing published with ID:', listingId);
 
   return { sku, offerId, listingId, itemWebUrl };
 }
@@ -311,4 +372,86 @@ export async function getCategories(
   }
 
   return await response.json();
+}
+
+/**
+ * Create a default inventory location for the user if none exists
+ */
+export async function createDefaultLocation(
+  userAccessToken: string,
+  country: string = 'US'
+): Promise<{ merchantLocationKey: string }> {
+  console.log('🔧 createDefaultLocation: Starting location creation for country:', country);
+  const merchantLocationKey = `default_warehouse_${country.toLowerCase()}`;
+  
+  // Default locations for different countries
+  const locationConfigs = {
+    'US': {
+      city: 'San Francisco',
+      stateOrProvince: 'CA',
+      country: 'US',
+      postalCode: '94102'
+    },
+    'CA': {
+      city: 'Toronto',
+      stateOrProvince: 'ON',
+      country: 'CA',
+      postalCode: 'M5H 2N2'
+    },
+    'UK': {
+      city: 'London',
+      stateOrProvince: 'England',
+      country: 'GB',
+      postalCode: 'SW1A 1AA'
+    },
+    'AU': {
+      city: 'Sydney',
+      stateOrProvince: 'NSW',
+      country: 'AU',
+      postalCode: '2000'
+    }
+  };
+  
+  const addressConfig = locationConfigs[country as keyof typeof locationConfigs] || locationConfigs['US'];
+  
+  const locationData = {
+    location: {
+      address: addressConfig
+    },
+    name: `Default Warehouse Location (${country})`,
+    locationTypes: ['WAREHOUSE'],
+    merchantLocationStatus: 'ENABLED'
+  };
+
+  console.log('🔧 createDefaultLocation: Location data:', locationData);
+
+  try {
+    const url = `${LISTING_CONFIG.inventoryUrl}/location/${merchantLocationKey}`;
+    console.log('🔧 createDefaultLocation: Making request to:', url);
+    
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${userAccessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(locationData)
+    });
+
+    console.log('🔧 createDefaultLocation: Response status:', response.status);
+
+    if (response.ok || response.status === 409) {
+      // 204 = created successfully, 409 = already exists
+      console.log('✅ createDefaultLocation: Location created or already exists');
+      return { merchantLocationKey };
+    } else {
+      const error = await response.text();
+      console.log('⚠️ createDefaultLocation: Non-fatal error:', response.status, error);
+      // Return the key anyway, it might work
+      return { merchantLocationKey };
+    }
+  } catch (error) {
+    console.log('⚠️ createDefaultLocation: Error, proceeding anyway:', error);
+    return { merchantLocationKey };
+  }
 } 

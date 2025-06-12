@@ -228,9 +228,9 @@ export default function EbayListingModal({
       setEditableImages([]);
       
       // Generate AI description asynchronously
-      // generateDefaultDescription(item).then(description => {
-      //   setDescription(description);
-      // });
+      generateDefaultDescription(item).then(description => {
+        setDescription(description);
+      });
     }
   }, [visible, item]);
 

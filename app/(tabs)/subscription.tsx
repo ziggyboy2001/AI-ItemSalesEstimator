@@ -11,7 +11,7 @@ import {
   AppState,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Crown, Zap, Star, ExternalLink, Check, ShieldCheck } from 'lucide-react-native';
+import { Crown, Zap, Star, ExternalLink, Check, ShieldCheck, TypeOutline, Camera, BadgeDollarSign } from 'lucide-react-native';
 
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useThemeColor } from '@/constants/useThemeColor';
@@ -230,22 +230,31 @@ export default function SubscriptionScreen() {
             
             <View style={styles.breakdownRow}>
               <View style={styles.breakdownItem}>
-                <Text style={[styles.breakdownLabel, { color: subtleText }]}>📄 Sold Items</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <BadgeDollarSign size={16} color={subtleText} style={{ marginBottom: 4}} />
+                    <Text style={[styles.breakdownLabel, { color: subtleText , marginLeft: -4}]}>Sold Items</Text>
+                </View>
                 <Text style={[styles.breakdownCount, { color: textColor }]}>
                   {scanBreakdown?.sold_text || 0}
                 </Text>
               </View>
               
               <View style={styles.breakdownItem}>
-                <Text style={[styles.breakdownLabel, { color: subtleText }]}>🔍 Current Text</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TypeOutline size={16} color={subtleText} style={{ marginBottom: 4}} />
+                    <Text style={[styles.breakdownLabel, { color: subtleText , marginLeft: -4}]}>Text Searches</Text>
+                </View>                
                 <Text style={[styles.breakdownCount, { color: textColor }]}>
                   {scanBreakdown?.current_text || 0}
                 </Text>
               </View>
               
               <View style={styles.breakdownItem}>
-                <Text style={[styles.breakdownLabel, { color: subtleText }]}>📸 Current Image</Text>
-                <Text style={[styles.breakdownCount, { color: textColor }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Camera size={16} color={subtleText} style={{ marginBottom: 4}} />
+                    <Text style={[styles.breakdownLabel, { color: subtleText , marginLeft: -4}]}>Image Searches</Text>
+                </View>
+                  <Text style={[styles.breakdownCount, { color: textColor }]}>
                   {scanBreakdown?.current_image || 0}
                 </Text>
               </View>

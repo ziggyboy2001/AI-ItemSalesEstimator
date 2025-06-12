@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator, Image, ScrollView, Alert } from 'react-native';
+import { StyleSheet, View, Text, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator, Image, ScrollView, Alert, AppState } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeInDown, Layout } from 'react-native-reanimated';
@@ -63,6 +63,22 @@ export default function HaulDetailsScreen() {
     checkUserAndEbayConnection();
   }, [id]);
 
+  // Listen for app state changes to refresh eBay connection after OAuth
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        console.log('📱 App became active, refreshing eBay connection...');
+        // Small delay to ensure OAuth processing is complete
+        setTimeout(() => {
+          checkUserAndEbayConnection();
+        }, 1000);
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, []);
+
   const checkUserAndEbayConnection = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -124,25 +140,60 @@ export default function HaulDetailsScreen() {
   };
 
   const handleSubmitListing = async (config: ListingConfiguration) => {
-    if (!selectedItem || !userId) return;
+    console.log('🚀 handleSubmitListing: Starting with config:', {
+      categoryId: config.categoryId,
+      condition: config.condition,
+      price: config.price,
+      title: config.title,
+      selectedItemId: selectedItem?.id,
+      userId
+    });
+    
+    if (!selectedItem || !userId) {
+      console.log('❌ handleSubmitListing: Missing selectedItem or userId');
+      return;
+    }
     
     try {
+      console.log('⏳ handleSubmitListing: Setting loading state...');
       setListingLoading(true);
+      
+      console.log('📞 handleSubmitListing: Calling listHaulItem...');
       const result = await listHaulItem(userId, selectedItem.id, config);
+      console.log('📞 handleSubmitListing: listHaulItem returned:', result);
       
       if (result.success) {
+        console.log('✅ handleSubmitListing: Listing successful!');
         Alert.alert('Success', 'Item listed on eBay successfully!');
         setListingModalVisible(false);
         setSelectedItem(null);
         // Refresh haul details to show updated listing status
         fetchHaulDetails();
       } else {
-        Alert.alert('Error', result.error || 'Failed to list item on eBay');
+        console.log('❌ handleSubmitListing: Listing failed:', result.error);
+        
+        // Handle re-authentication required
+        if (result.error === 'EBAY_REAUTH_REQUIRED') {
+          console.log('🔄 handleSubmitListing: eBay re-authentication required');
+          // Clear the eBay connected state
+          setEbayConnected(false);
+          // Close the listing modal and open OAuth modal
+          setListingModalVisible(false);
+          setOauthModalVisible(true);
+          Alert.alert(
+            'eBay Authentication Expired', 
+            'Your eBay connection has expired. Please sign in again to continue listing items.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert('Error', result.error || 'Failed to list item on eBay');
+        }
       }
     } catch (error) {
-      console.error('Error listing item:', error);
+      console.error('❌ handleSubmitListing: Exception occurred:', error);
       Alert.alert('Error', 'Failed to list item on eBay');
     } finally {
+      console.log('🏁 handleSubmitListing: Setting loading to false');
       setListingLoading(false);
     }
   };
@@ -276,9 +327,42 @@ export default function HaulDetailsScreen() {
     >
       {/* <Image source={{ uri: item.image_url }} style={styles.itemImage} /> */}
       <View style={styles.itemContent}>
-        <Text style={[styles.itemTitle, { color: textColor }]} numberOfLines={2}>
-          {item.title}
-        </Text>
+        <View style={styles.itemHeader}>
+          <Text style={[styles.itemTitle, { color: textColor }]} numberOfLines={2}>
+            {item.title}
+          </Text>
+          {/* eBay Listing Status/Button */}
+          <View style={styles.itemActions}>
+            {item.listed_on_ebay ? (
+              <View style={[styles.listedBadge, { backgroundColor: successColor + '20' }]}>
+                <CheckCircle2 size={16} color={successColor} />
+                <Text style={[styles.listedText, { color: successColor }]}>
+                  Listed on eBay
+                </Text>
+                {item.listing_price && (
+                  <Text style={[styles.listingPrice, { color: successColor }]}>
+                    ${item.listing_price.toFixed(2)}
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.listButton, { 
+                  backgroundColor: tintColor + '10',
+                  borderColor: tintColor
+                }]}
+                onPress={() => handleListOnEbay(item)}
+              >
+                <ExternalLink size={16} color={tintColor} />
+                <Text style={[styles.listButtonText, { 
+                  color: tintColor 
+                }]}>
+                  List item
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
         <View style={styles.itemPrices}>
           <Text style={[styles.purchasePrice, { color: errorColor }]}>
             Paid: ${item.purchase_price.toFixed(2)}
@@ -294,38 +378,6 @@ export default function HaulDetailsScreen() {
           <Text style={[styles.margin, { color: subtleText }]}>
             Margin: {item.margin.toFixed(1)}%
           </Text>
-        </View>
-        
-        {/* eBay Listing Status/Button */}
-        <View style={styles.itemActions}>
-          {item.listed_on_ebay ? (
-            <View style={[styles.listedBadge, { backgroundColor: successColor + '20' }]}>
-              <CheckCircle2 size={16} color={successColor} />
-              <Text style={[styles.listedText, { color: successColor }]}>
-                Listed on eBay
-              </Text>
-              {item.listing_price && (
-                <Text style={[styles.listingPrice, { color: successColor }]}>
-                  ${item.listing_price.toFixed(2)}
-                </Text>
-              )}
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={[styles.listButton, { 
-                backgroundColor: tintColor + '20',
-                borderColor: tintColor
-              }]}
-              onPress={() => handleListOnEbay(item)}
-            >
-              <ExternalLink size={16} color={tintColor} />
-              <Text style={[styles.listButtonText, { 
-                color: tintColor 
-              }]}>
-                List on eBay
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
     </Animated.View>
@@ -618,10 +670,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
   },
+  itemHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   itemTitle: {
     fontSize: 14,
     fontWeight: '500',
-    marginBottom: 4,
+    flex: 1,
+    marginRight: 8,
   },
   itemPrices: {
     flexDirection: 'row',
@@ -657,7 +716,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   itemActions: {
-    marginTop: 8,
+    alignItems: 'flex-end',
   },
   listedBadge: {
     flexDirection: 'row',
@@ -683,7 +742,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 6,
     borderWidth: 1,
-    gap: 6,
+    marginBottom: 4,
+    gap: 4,
   },
   listButtonText: {
     fontSize: 12,
