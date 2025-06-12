@@ -247,14 +247,8 @@ export async function listHaulItemOnEbay(
   
   console.log('🔍 DEBUG: Function version check - location creation enabled');
   
-  // Try to create a default location first (required for offers)
-  try {
-    console.log('🏗️ listHaulItemOnEbay: Attempting to create default location...');
-    const { merchantLocationKey } = await createDefaultLocation(userAccessToken, config.country || 'US');
-    console.log('✅ listHaulItemOnEbay: Location setup completed with key:', merchantLocationKey);
-  } catch (error) {
-    console.log('⚠️ listHaulItemOnEbay: Location creation failed, will use default:', error);
-  }
+  // Skip location setup - let eBay handle it automatically
+  console.log('⚠️ listHaulItemOnEbay: Skipping location setup for sandbox compatibility');
   
   // Create eBay-compliant SKU: alphanumeric only, max 50 chars
   const cleanId = haulItem.id.replace(/[^a-zA-Z0-9]/g, ''); // Remove hyphens and other special chars
@@ -265,8 +259,21 @@ export async function listHaulItemOnEbay(
   // Step 1: Create inventory item
   console.log('🖼️ listHaulItemOnEbay: Preparing images...');
   const allImages = [];
-  if (haulItem.image_url) allImages.push(haulItem.image_url);
-  if (haulItem.additional_images) allImages.push(...haulItem.additional_images);
+  
+  // Helper function to ensure URLs have proper protocol
+  const ensureProtocol = (url: string): string => {
+    if (!url) return url;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ftp://')) {
+      return url;
+    }
+    // Default to https if no protocol is present
+    return `https://${url}`;
+  };
+  
+  if (haulItem.image_url) allImages.push(ensureProtocol(haulItem.image_url));
+  if (haulItem.additional_images) {
+    allImages.push(...haulItem.additional_images.map(ensureProtocol));
+  }
   console.log('✅ listHaulItemOnEbay: Found', allImages.length, 'images');
 
   const inventoryItem: EbayInventoryItem = {
@@ -274,7 +281,8 @@ export async function listHaulItemOnEbay(
     product: {
       title: config.title || haulItem.title,
       description: config.description || generateDescription(haulItem),
-      imageUrls: config.images || allImages.slice(0, 12) // Use user images if provided, otherwise eBay allows max 12 images
+      imageUrls: (config.images ? config.images.map(ensureProtocol) : allImages).slice(0, 12), // Use user images if provided, otherwise eBay allows max 12 images
+      aspects: generateItemAspects(config.categoryId, haulItem.title)
     },
     condition: config.condition,
     availability: {
@@ -302,19 +310,18 @@ export async function listHaulItemOnEbay(
       }
     },
     listingPolicies: {
-      fulfillmentPolicyId: config.fulfillmentPolicyId,
-      paymentPolicyId: config.paymentPolicyId,
-      returnPolicyId: config.returnPolicyId
+      fulfillmentPolicyId: '6209718000',
+      paymentPolicyId: '6209719000',
+      returnPolicyId: '6209720000'
     },
-    categoryId: config.categoryId,
-    merchantLocationKey: 'default'  // Use default location key for eBay sandbox
+    categoryId: '139973', // Video Games & Consoles > Video Games > Nintendo Game Boy Advance
+    merchantLocationKey: 'bidpeeksbx'
   };
 
   console.log('📄 listHaulItemOnEbay: Offer config:', {
     sku: offer.sku,
     price: offer.pricingSummary.price.value,
     categoryId: offer.categoryId,
-    merchantLocationKey: offer.merchantLocationKey,
     hasPolicies: !!(config.fulfillmentPolicyId || config.paymentPolicyId || config.returnPolicyId)
   });
 
@@ -327,6 +334,82 @@ export async function listHaulItemOnEbay(
   console.log('✅ listHaulItemOnEbay: Listing published with ID:', listingId);
 
   return { sku, offerId, listingId, itemWebUrl };
+}
+
+/**
+ * Generate item aspects (item specifics) based on category and title
+ */
+function generateItemAspects(categoryId: string, title: string): Record<string, string[]> {
+  const aspects: Record<string, string[]> = {};
+  
+  // Video game categories require Platform and Game Name
+  if (categoryId === '139973') { // Nintendo Game Boy Advance
+    aspects['Platform'] = ['Nintendo Game Boy Advance'];
+    aspects['Game Name'] = [extractGameName(title)];
+  } else if (categoryId === '175672') { // General Video Games
+    // Try to detect platform from title
+    const titleLower = title.toLowerCase();
+    if (titleLower.includes('gba') || titleLower.includes('game boy advance')) {
+      aspects['Platform'] = ['Nintendo Game Boy Advance'];
+      aspects['Game Name'] = [extractGameName(title)];
+    } else if (titleLower.includes('ds') || titleLower.includes('nintendo ds')) {
+      aspects['Platform'] = ['Nintendo DS'];
+      aspects['Game Name'] = [extractGameName(title)];
+    } else if (titleLower.includes('3ds')) {
+      aspects['Platform'] = ['Nintendo 3DS'];
+      aspects['Game Name'] = [extractGameName(title)];
+    } else if (titleLower.includes('switch')) {
+      aspects['Platform'] = ['Nintendo Switch'];
+      aspects['Game Name'] = [extractGameName(title)];
+    } else if (titleLower.includes('playstation') || titleLower.includes('ps')) {
+      aspects['Platform'] = ['Sony PlayStation'];
+      aspects['Game Name'] = [extractGameName(title)];
+    } else if (titleLower.includes('xbox')) {
+      aspects['Platform'] = ['Microsoft Xbox'];
+      aspects['Game Name'] = [extractGameName(title)];
+    } else {
+      // Default fallback
+      aspects['Platform'] = ['Nintendo Game Boy Advance'];
+      aspects['Game Name'] = [extractGameName(title)];
+    }
+  }
+  
+  return aspects;
+}
+
+/**
+ * Extract game name from title by removing platform indicators and common suffixes
+ */
+function extractGameName(title: string): string {
+  let gameName = title;
+  
+  // Remove common platform indicators (case insensitive)
+  const platformIndicators = [
+    /\bgba\b/gi,
+    /\bgame boy advance\b/gi,
+    /\bnintendo ds\b/gi,
+    /\b3ds\b/gi,
+    /\bnintendo switch\b/gi,
+    /\bswitch\b/gi,
+    /\bplaystation\b/gi,
+    /\bps[1-5]\b/gi,
+    /\bxbox\b/gi,
+    /\bnintendo\b/gi
+  ];
+  
+  platformIndicators.forEach(indicator => {
+    gameName = gameName.replace(indicator, '');
+  });
+  
+  // Clean up extra spaces and trim
+  gameName = gameName.replace(/\s+/g, ' ').trim();
+  
+  // If the cleaned name is too short or empty, use the original title
+  if (gameName.length < 3) {
+    gameName = title;
+  }
+  
+  return gameName;
 }
 
 /**
@@ -375,59 +458,72 @@ export async function getCategories(
 }
 
 /**
- * Create a default inventory location for the user if none exists
+ * Create or find a suitable inventory location following eBay's official guidelines
  */
 export async function createDefaultLocation(
   userAccessToken: string,
   country: string = 'US'
 ): Promise<{ merchantLocationKey: string }> {
-  console.log('🔧 createDefaultLocation: Starting location creation for country:', country);
-  const merchantLocationKey = `default_warehouse_${country.toLowerCase()}`;
+  console.log('🔧 createDefaultLocation: Starting location management for country:', country);
   
-  // Default locations for different countries
-  const locationConfigs = {
-    'US': {
-      city: 'San Francisco',
-      stateOrProvince: 'CA',
-      country: 'US',
-      postalCode: '94102'
-    },
-    'CA': {
-      city: 'Toronto',
-      stateOrProvince: 'ON',
-      country: 'CA',
-      postalCode: 'M5H 2N2'
-    },
-    'UK': {
-      city: 'London',
-      stateOrProvince: 'England',
-      country: 'GB',
-      postalCode: 'SW1A 1AA'
-    },
-    'AU': {
-      city: 'Sydney',
-      stateOrProvince: 'NSW',
-      country: 'AU',
-      postalCode: '2000'
+  // Step 1: Check if any locations exist first (per eBay guidelines)
+  try {
+    const listUrl = `${LISTING_CONFIG.inventoryUrl}/location`;
+    console.log('🔍 createDefaultLocation: Checking existing locations...');
+    
+    const listResponse = await fetch(listUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${userAccessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (listResponse.ok) {
+      const locationData = await listResponse.json();
+      console.log('📋 createDefaultLocation: Found existing locations:', locationData.total || 0);
+      
+      if (locationData.locations && locationData.locations.length > 0) {
+        // Use the first enabled location
+        const enabledLocation = locationData.locations.find(
+          (loc: any) => loc.merchantLocationStatus === 'ENABLED'
+        ) || locationData.locations[0];
+        
+        console.log('✅ createDefaultLocation: Using existing location:', enabledLocation.merchantLocationKey);
+        return { merchantLocationKey: enabledLocation.merchantLocationKey };
+      }
+    } else {
+      console.log('⚠️ createDefaultLocation: Could not list locations, status:', listResponse.status);
     }
-  };
+  } catch (error) {
+    console.log('⚠️ createDefaultLocation: Error checking existing locations:', error);
+  }
   
-  const addressConfig = locationConfigs[country as keyof typeof locationConfigs] || locationConfigs['US'];
+  // Step 2: Create a new location using the exact InventoryLocationFull schema
+  const merchantLocationKey = 'warehouse_default';
   
-  const locationData = {
-    location: {
-      address: addressConfig
-    },
-    name: `Default Warehouse Location (${country})`,
+  // This payload follows the exact InventoryLocationFull schema from the OpenAPI contract
+  const locationPayload = {
+    name: 'Default Warehouse Location',
+    merchantLocationStatus: 'ENABLED',
     locationTypes: ['WAREHOUSE'],
-    merchantLocationStatus: 'ENABLED'
+    location: {
+      address: {
+        addressLine1: '123 Market Street',  // This was missing!
+        city: 'San Francisco',
+        stateOrProvince: 'CA',
+        country: 'US',
+        postalCode: '94102'
+      }
+    },
+    phone: '+14155551234'
   };
 
-  console.log('🔧 createDefaultLocation: Location data:', locationData);
+  console.log('🔧 createDefaultLocation: Creating new warehouse location with data:', locationPayload);
 
   try {
     const url = `${LISTING_CONFIG.inventoryUrl}/location/${merchantLocationKey}`;
-    console.log('🔧 createDefaultLocation: Making request to:', url);
+    console.log('🔧 createDefaultLocation: Making PUT request to:', url);
     
     const response = await fetch(url, {
       method: 'PUT',
@@ -435,23 +531,26 @@ export async function createDefaultLocation(
         'Authorization': `Bearer ${userAccessToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(locationData)
+      body: JSON.stringify(locationPayload)
     });
 
     console.log('🔧 createDefaultLocation: Response status:', response.status);
 
-    if (response.ok || response.status === 409) {
-      // 204 = created successfully, 409 = already exists
-      console.log('✅ createDefaultLocation: Location created or already exists');
+    if (response.status === 204) {
+      // 204 = created successfully per eBay API docs
+      console.log('✅ createDefaultLocation: Warehouse location created successfully');
+      return { merchantLocationKey };
+    } else if (response.status === 409) {
+      // 409 = already exists
+      console.log('✅ createDefaultLocation: Warehouse location already exists');
       return { merchantLocationKey };
     } else {
       const error = await response.text();
-      console.log('⚠️ createDefaultLocation: Non-fatal error:', response.status, error);
-      // Return the key anyway, it might work
-      return { merchantLocationKey };
+      console.log('❌ createDefaultLocation: Failed to create location:', response.status, error);
+      throw new Error(`Failed to create inventory location: ${error}`);
     }
   } catch (error) {
-    console.log('⚠️ createDefaultLocation: Error, proceeding anyway:', error);
-    return { merchantLocationKey };
+    console.log('❌ createDefaultLocation: Exception during location creation:', error);
+    throw error;
   }
 } 

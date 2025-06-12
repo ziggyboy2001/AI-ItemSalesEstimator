@@ -281,6 +281,24 @@ export async function listHaulItem(
       };
     }
     
+    // Check for category-related errors and provide user-friendly messages
+    let userFriendlyError = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+      
+      if (errorMessage.includes('not a leaf category')) {
+        userFriendlyError = 'The selected category is too broad. Please choose a more specific category for your item.';
+      } else if (errorMessage.includes('item specific') && errorMessage.includes('missing')) {
+        // Extract the missing item specific from the error
+        const match = error.message.match(/The item specific ([^.]+) is missing/);
+        const missingField = match ? match[1] : 'required field';
+        userFriendlyError = `This category requires additional information. Please select a different category or ensure all required fields (${missingField}) are provided.`;
+      } else if (errorMessage.includes('invalid category')) {
+        userFriendlyError = 'The selected category is not valid for this item. Please choose a different category.';
+      }
+    }
+    
     console.log('💾 listHaulItem: Updating database with error status...');
     // Update database with error status
     await supabase
@@ -292,7 +310,7 @@ export async function listHaulItem(
       
     return { 
       success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      error: userFriendlyError
     };
   }
 }
