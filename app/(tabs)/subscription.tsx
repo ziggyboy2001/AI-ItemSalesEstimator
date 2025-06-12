@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,10 @@ import {
   Alert,
   Linking,
   SafeAreaView,
+  AppState,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Crown, Zap, Star, ExternalLink, Check, X } from 'lucide-react-native';
+import { Crown, Zap, Star, ExternalLink, Check, ShieldCheck } from 'lucide-react-native';
 
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useThemeColor } from '@/constants/useThemeColor';
@@ -24,7 +25,8 @@ export default function SubscriptionScreen() {
     scansRemaining,
     scansUsed,
     features,
-    scanBreakdown
+    scanBreakdown,
+    refreshSubscription
   } = useSubscription();
 
   const backgroundColor = useThemeColor('background');
@@ -33,6 +35,28 @@ export default function SubscriptionScreen() {
   const subtleText = useThemeColor('tabIconDefault');
 
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+  const appState = useRef(AppState.currentState);
+  const checkoutInProgress = useRef(false);
+
+  // Listen for app state changes to detect return from browser checkout
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        // App came back to foreground
+        if (checkoutInProgress.current) {
+          // User returned from checkout, refresh data to check for successful purchase
+          console.log('🔄 Returned from checkout, refreshing subscription data...');
+          refreshSubscription();
+          checkoutInProgress.current = false;
+        }
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [refreshSubscription]);
 
   // Helper function to get color based on scans remaining
   const getScanUsageColor = (scansRemaining: number, totalScans: number) => {
@@ -101,6 +125,7 @@ export default function SubscriptionScreen() {
       if (serverAvailable) {
         // Use direct Stripe checkout via our server
         console.log('💳 Opening scan pack checkout...');
+        checkoutInProgress.current = true; // Mark that checkout is starting
         await stripeService.openScanPackCheckout(packId, subscription?.userId || 'anonymous');
       } else {
         // Fallback to manual confirmation
@@ -136,15 +161,16 @@ export default function SubscriptionScreen() {
                            (scanBreakdown?.current_text || 0) + 
                            (scanBreakdown?.current_image || 0);
     
-    // Get the plan limit (100 for Power Seller)
-    const planLimit = isUnlimited ? -1 : (() => {
+    // Get the base plan limit for display purposes only
+    const basePlanLimit = isUnlimited ? -1 : (() => {
       const limits = { free: 3, hobby: 25, pro: 100, business: 100, unlimited: -1 };
       return limits[subscription?.tier || 'free'] || 3;
     })();
     
-    // Calculate remaining scans properly
-    const actualScansRemaining = planLimit === -1 ? -1 : Math.max(0, planLimit - actualScansUsed);
-    const usagePercentage = isUnlimited ? 0 : (planLimit > 0 ? (actualScansUsed / planLimit) * 100 : 0);
+    // Use scansRemaining from context (includes bonus scans from purchases)
+    const actualScansRemaining = scansRemaining;
+    const totalScansLimit = isUnlimited ? -1 : actualScansUsed + actualScansRemaining;
+    const usagePercentage = isUnlimited ? 0 : (totalScansLimit > 0 ? (actualScansUsed / totalScansLimit) * 100 : 0);
 
     return (
       <View style={[styles.currentPlanCard, { backgroundColor: subtleText + '10' }]}>
@@ -182,17 +208,17 @@ export default function SubscriptionScreen() {
                     style={[
                       styles.usageBarFill, 
                       { 
-                        backgroundColor: getScanUsageColor(actualScansRemaining, planLimit),
+                        backgroundColor: getScanUsageColor(actualScansRemaining, totalScansLimit),
                         width: `${Math.min(usagePercentage, 100)}%`
                       }
                     ]} 
                   />
                 </View>
                 <Text style={[styles.usageText, { color: textColor }]}>
-                  {actualScansUsed} / {planLimit} scans used
+                  {actualScansUsed} / {totalScansLimit} scans used
                 </Text>
               </View>
-              <Text style={[styles.scansRemaining, { color: getScanUsageColor(actualScansRemaining, planLimit) }]}>
+              <Text style={[styles.scansRemaining, { color: getScanUsageColor(actualScansRemaining, totalScansLimit) }]}>
                 {actualScansRemaining} scans remaining
               </Text>
             </>
@@ -326,20 +352,19 @@ export default function SubscriptionScreen() {
   };
 
   const renderScanPacks = () => {
-    // Don't show scan packs for unlimited users or users with plenty of scans
+    // Only hide scan packs for unlimited users (they don't need more scans)
     if (subscription?.tier === 'unlimited') {
       return null;
-    }
-    
-    if (subscription?.tier !== 'free' && scansRemaining > 3) {
-      return null; // Don't show scan packs if user has plenty of scans
     }
 
     return (
       <View style={styles.scanPacksSection}>
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Need More Scans?</Text>
+        <Text style={[styles.sectionTitle, { color: textColor }]}>Extra Scans</Text>
         <Text style={[styles.sectionSubtitle, { color: subtleText }]}>
-          Purchase additional scans without changing your plan
+          {scansRemaining <= 3 
+            ? 'Purchase additional scans without changing your plan'
+            : 'Top up your account with extra scans for busy months'
+          }
         </Text>
 
         <View style={styles.scanPacksGrid}>
@@ -394,8 +419,11 @@ export default function SubscriptionScreen() {
           {(['hobby', 'pro', 'business', 'unlimited'] as const).map(renderSubscriptionTier)}
         </View>
 
-        <View style={styles.savingsCallout}>
-          <Text style={[styles.savingsTitle, { color: tintColor }]}>💳 Secure Online Payment</Text>
+        <View style={[styles.savingsCallout, { backgroundColor: subtleText + '10' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <ShieldCheck size={24} color={tintColor} style={{ marginBottom: 8, marginRight: 8 }} />
+            <Text style={[styles.savingsTitle, { color: tintColor }]}>Secure Online Payment</Text>
+          </View>
           <Text style={[styles.savingsText, { color: textColor }]}>
             All payments are processed securely through Stripe. You'll be redirected to complete your purchase safely.
           </Text>
@@ -628,7 +656,6 @@ const styles = StyleSheet.create({
   savingsCallout: {
     margin: 20,
     padding: 20,
-    backgroundColor: '#f8f9fa',
     borderRadius: 16,
     marginBottom: 40,
   },

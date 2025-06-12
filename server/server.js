@@ -17,7 +17,97 @@ const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
 // Middleware
 app.use(cors());
+
+// 🎯 WEBHOOK ROUTE FIRST - BEFORE express.json()
+app.post(
+  '/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    let event;
+
+    try {
+      event = stripeClient.webhooks.constructEvent(
+        req.body,
+        sig,
+        endpointSecret
+      );
+    } catch (err) {
+      console.error('❌ Webhook signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log(`\n🎯 ===== WEBHOOK EVENT DEBUG =====`);
+    console.log(`📨 Event Type: ${event.type}`);
+    console.log(`🆔 Event ID: ${event.id}`);
+    console.log(`📅 Created: ${new Date(event.created * 1000).toISOString()}`);
+    
+    if (event.data.object.metadata) {
+      console.log(`📋 Metadata:`, event.data.object.metadata);
+    } else {
+      console.log(`⚠️ NO METADATA FOUND`);
+    }
+    
+    console.log(`🔍 Object ID: ${event.data.object.id}`);
+    console.log(`=====================================\n`);
+
+    // Handle the event
+    switch (event.type) {
+      case 'checkout.session.completed':
+        console.log(`🛒 Processing checkout.session.completed...`);
+        await handleCheckoutCompleted(event.data.object);
+        break;
+
+      case 'customer.subscription.created':
+        console.log(`📋 Processing customer.subscription.created...`);
+        await handleSubscriptionCreated(event.data.object);
+        break;
+
+      case 'customer.subscription.updated':
+        console.log(`🔄 Processing customer.subscription.updated...`);
+        await handleSubscriptionUpdated(event.data.object);
+        break;
+
+      case 'customer.subscription.deleted':
+        console.log(`❌ Processing customer.subscription.deleted...`);
+        await handleSubscriptionDeleted(event.data.object);
+        break;
+
+      case 'invoice.payment_succeeded':
+        console.log(`💰 Processing invoice.payment_succeeded...`);
+        await handleInvoicePaymentSucceeded(event.data.object);
+        break;
+
+      case 'invoice.payment_failed':
+        console.log(`💸 Processing invoice.payment_failed...`);
+        await handleInvoicePaymentFailed(event.data.object);
+        break;
+
+      default:
+        console.log(`🤷 Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  }
+);
+
+// JSON middleware AFTER webhook route
 app.use(express.json());
+
+// Serve static files from oauth-pages directory
+const path = require('path');
+app.use(express.static(path.join(__dirname, '../oauth-pages')));
+
+// Specific routes for payment callbacks
+app.get('/success', (req, res) => {
+  res.sendFile(path.join(__dirname, '../oauth-pages/success.html'));
+});
+
+app.get('/cancel', (req, res) => {
+  res.sendFile(path.join(__dirname, '../oauth-pages/cancel.html'));
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -66,7 +156,137 @@ app.post('/record-scan', async (req, res) => {
   }
 });
 
-// Get user subscription endpoint
+// Get comprehensive subscription status (subscription + usage + totals)
+app.get('/subscription-status/:deviceId', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { userId } = req.query;
+
+    console.log(`📋 Getting complete subscription status for device ${deviceId}`);
+
+    // Get subscription
+    const queryParam = userId
+      ? `user_id=eq.${userId}`
+      : `device_id=eq.${deviceId}&user_id=is.null`;
+
+    const subResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_subscriptions?${queryParam}&limit=1`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!subResponse.ok) {
+      throw new Error(`Failed to fetch subscription: ${subResponse.statusText}`);
+    }
+
+    const subscriptions = await subResponse.json();
+    let subscription;
+
+    if (subscriptions.length === 0) {
+      subscription = await createFreeSubscription(userId, deviceId);
+    } else {
+      subscription = subscriptions[0];
+    }
+
+    // Get current month usage
+    const usageResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_scans?${userId ? `user_id=eq.${userId}` : `device_id=eq.${deviceId}`}&created_at=gte.${new Date().getFullYear()}-${String(
+        new Date().getMonth() + 1
+      ).padStart(2, '0')}-01T00:00:00Z`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!usageResponse.ok) {
+      throw new Error(`Failed to fetch usage: ${usageResponse.statusText}`);
+    }
+
+    const scans = await usageResponse.json();
+    const breakdown = {
+      current_text: 0,
+      current_image: 0,
+      sold_text: 0,
+    };
+
+    scans.forEach((scan) => {
+      if (scan.scan_type in breakdown) {
+        breakdown[scan.scan_type]++;
+      }
+    });
+
+    const totalUsage = Object.values(breakdown).reduce((sum, count) => sum + count, 0);
+
+    // Get bonus scans from scan credits
+    let bonusScans = 0;
+    try {
+      const creditsResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/scan_credits?device_id=eq.${deviceId}&select=scan_credits`,
+        {
+          headers: {
+            apikey: SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (creditsResponse.ok) {
+        const credits = await creditsResponse.json();
+        bonusScans = credits.reduce((sum, credit) => sum + credit.scan_credits, 0);
+        console.log(`📊 Bonus scans from credits for device ${deviceId}: ${bonusScans}`);
+      }
+    } catch (creditsError) {
+      console.warn('Failed to fetch scan credits:', creditsError.message);
+    }
+
+    // Calculate totals
+    const scanLimits = {
+      free: 3,
+      hobby: 25,
+      pro: 100,
+      business: 100,
+      unlimited: -1,
+    };
+
+    const baseLimit = scanLimits[subscription.subscription_type] || 3;
+    const totalLimit = baseLimit === -1 ? -1 : baseLimit + bonusScans;
+    const remaining = totalLimit === -1 ? -1 : Math.max(0, totalLimit - totalUsage);
+
+    // Return comprehensive status
+    res.json({
+      subscription,
+      usage: {
+        used: totalUsage,
+        breakdown,
+        month: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'),
+      },
+      scans: {
+        baseLimit,
+        bonusScans,
+        totalLimit,
+        used: totalUsage,
+        remaining,
+      },
+      canScan: subscription.subscription_type === 'unlimited' || totalUsage < totalLimit,
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting subscription status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get user subscription endpoint (legacy - kept for backward compatibility)
 app.get('/subscription/:deviceId', async (req, res) => {
   try {
     const { deviceId } = req.params;
@@ -209,6 +429,29 @@ app.post('/check-scan-limit', async (req, res) => {
 
     const usage = await usageResponse.json();
 
+    // Get bonus scans from scan credits
+    let bonusScans = 0;
+    try {
+      const creditsResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/scan_credits?device_id=eq.${deviceId}&select=scan_credits`,
+        {
+          headers: {
+            apikey: SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (creditsResponse.ok) {
+        const credits = await creditsResponse.json();
+        bonusScans = credits.reduce((sum, credit) => sum + credit.scan_credits, 0);
+        console.log(`📊 Bonus scans from credits for device ${deviceId}: ${bonusScans}`);
+      }
+    } catch (creditsError) {
+      console.warn('Failed to fetch scan credits:', creditsError.message);
+    }
+
     // Check limits
     const scanLimits = {
       free: 3,
@@ -218,20 +461,22 @@ app.post('/check-scan-limit', async (req, res) => {
       unlimited: -1,
     };
 
-    const limit = scanLimits[subscription.subscription_type] || 3;
+    const baseLimit = scanLimits[subscription.subscription_type] || 3;
+    const totalLimit = baseLimit === -1 ? -1 : baseLimit + bonusScans;
+    
     const canScan =
-      subscription.subscription_type === 'unlimited' || usage.used < limit;
+      subscription.subscription_type === 'unlimited' || usage.used < totalLimit;
 
     res.json({
       canScan,
       usageInfo: {
         used: usage.used,
-        limit: limit,
-        remaining: limit === -1 ? -1 : Math.max(0, limit - usage.used),
+        limit: totalLimit,
+        remaining: totalLimit === -1 ? -1 : Math.max(0, totalLimit - usage.used),
         breakdown: usage.breakdown,
       },
       reason: !canScan
-        ? `You've reached your ${subscription.subscription_type} plan limit of ${limit} scans this month. Upgrade to continue scanning.`
+        ? `You've reached your ${subscription.subscription_type} plan limit of ${totalLimit} scans this month (${baseLimit} base + ${bonusScans} bonus). Upgrade to continue scanning.`
         : undefined,
     });
   } catch (error) {
@@ -326,63 +571,6 @@ app.post('/stripe/create-checkout-session', async (req, res) => {
     });
   }
 });
-
-// Handle Stripe webhooks
-app.post(
-  '/stripe/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    let event;
-
-    try {
-      event = stripeClient.webhooks.constructEvent(
-        req.body,
-        sig,
-        endpointSecret
-      );
-    } catch (err) {
-      console.error('❌ Webhook signature verification failed:', err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    console.log(`📨 Received webhook: ${event.type}`);
-
-    // Handle the event
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutCompleted(event.data.object);
-        break;
-
-      case 'customer.subscription.created':
-        await handleSubscriptionCreated(event.data.object);
-        break;
-
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object);
-        break;
-
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object);
-        break;
-
-      case 'invoice.payment_succeeded':
-        await handleInvoicePaymentSucceeded(event.data.object);
-        break;
-
-      case 'invoice.payment_failed':
-        await handleInvoicePaymentFailed(event.data.object);
-        break;
-
-      default:
-        console.log(`🤷 Unhandled event type: ${event.type}`);
-    }
-
-    res.json({ received: true });
-  }
-);
 
 // Cancel subscription
 app.post('/stripe/cancel-subscription', async (req, res) => {
@@ -482,13 +670,13 @@ app.get('/success', (req, res) => {
         <br><br>
         You can now return to the BidPeek app to start using your new features.
       </div>
-      <a href="bidpeek://subscription/success" class="btn">Return to App</a>
+      <a href="bidpeek://subscription/success?tier=${tier || ''}&billing=${billing || ''}" class="btn">Return to App</a>
       
       <script>
-        // Auto-redirect after 3 seconds
+        // Auto-redirect after 2 seconds
         setTimeout(() => {
-          window.location.href = 'bidpeek://subscription/success';
-        }, 3000);
+          window.location.href = 'bidpeek://subscription/success?tier=${tier || ''}&billing=${billing || ''}';
+        }, 2000);
       </script>
     </body>
     </html>
@@ -935,40 +1123,37 @@ async function addScansToUser(userId, scanCount) {
   try {
     console.log(`📝 Adding ${scanCount} scans to user ${userId}`);
 
-    // For scan packs, you might want to record the purchase and add to their monthly allowance
-    // This is a simplified implementation - you might want to track scan pack purchases separately
-
     const now = new Date().toISOString();
 
-    // Record the scan pack purchase (optional - for audit trail)
-    const purchaseRecord = {
+    // Record the scan pack purchase as credits in a separate table
+    const creditRecord = {
       device_id: userId,
-      scan_type: 'scan_pack_purchase',
-      metadata: {
-        scan_count: scanCount,
-        purchase_date: now,
-        source: 'stripe_webhook',
-      },
+      scan_credits: scanCount,
+      purchase_date: now,
+      stripe_source: 'scan_pack_purchase',
+      expires_at: null, // Scan credits don't expire
       created_at: now,
     };
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/user_scans`, {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/scan_credits`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
         'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
       },
-      body: JSON.stringify(purchaseRecord),
+      body: JSON.stringify(creditRecord),
     });
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to record scan pack purchase: ${response.statusText}`
-      );
+      const errorText = await response.text();
+      console.error('Supabase error response:', errorText);
+      throw new Error(`Failed to record scan credits: ${response.statusText}`);
     }
 
-    console.log(`✅ Added ${scanCount} scans to user ${userId}`);
+    const result = await response.json();
+    console.log(`✅ Added ${scanCount} scan credits for user ${userId}`, result);
   } catch (error) {
     console.error(`❌ Error adding scans for user ${userId}:`, error);
     throw error;

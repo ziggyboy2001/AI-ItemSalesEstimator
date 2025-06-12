@@ -6,6 +6,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ArrowLeft, User, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { supabase } from '@/services/supabaseClient';
+import EbayConnectionCard from '@/components/EbayConnectionCard';
 
 export default function AccountSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -20,6 +21,7 @@ export default function AccountSettingsScreen() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   // Theme colors
   const backgroundColor = useThemeColor('background');
@@ -39,6 +41,7 @@ export default function AccountSettingsScreen() {
     if (user) {
       setCurrentEmail(user.email || '');
       setNewEmail(user.email || '');
+      setUserId(user.id);
     }
   };
 
@@ -251,6 +254,13 @@ export default function AccountSettingsScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+          )}
+
+          {/* eBay Integration Section */}
+          {userId && (
+            <Animated.View entering={FadeInDown.delay(400).duration(400)}>
+              <EbayConnectionCard userId={userId} />
+            </Animated.View>
           )}
         </Animated.View>
       </ScrollView>

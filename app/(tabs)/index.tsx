@@ -848,7 +848,7 @@ export default function SearchScreen() {
       }
 
       if (forIdentification) {
-        // Use eBay's searchByImage for identification
+        // Keep the existing identification logic unchanged
         setAiLoading(true);
         setAiModalVisible(true);
         setAiError('');
@@ -896,7 +896,7 @@ export default function SearchScreen() {
           setAiLoading(false);
         }
       } else {
-        // Set the image for search
+        // SIMPLIFIED: Just set the image and let user press search
         const imageBase64 = result.assets[0].base64;
         if (!imageBase64) {
           Alert.alert('Error', 'Failed to process image. Please try again.');
@@ -905,72 +905,15 @@ export default function SearchScreen() {
         
         setSelectedImage(imageBase64);
         setIsImageSearch(true);
-        setSearchQuery('');
+        setSearchQuery(''); // Clear any text
         
+        // Switch to listings tab if not already there
         if (activeTab === 'sold') {
           setActiveTab('listings');
         }
         
-        // Automatically trigger the AI Web Search directly (bypass the 3-option modal)
-        setTimeout(async () => {
-          setIsLoading(true);
-          try {
-            console.log('🔍 Auto-triggering AI Web Search from button...');
-            const ebayResults = await ebaySearchByImage({
-              image: imageBase64,
-              limit: 50
-            });
-            
-            if (ebayResults.itemSummaries && ebayResults.itemSummaries.length > 0) {
-              const identifiedTitle = ebayResults.itemSummaries[0].title;
-              console.log('✅ eBay identified item:', identifiedTitle);
-              
-              // Calculate stats from eBay response for Current Listings tab
-              const stats = calculateEbayImageSearchStats(ebayResults, 'Image Search');
-              
-              // Convert eBay results to our expected format for Current Listings tab
-              const convertedItems = ebayResults.itemSummaries.map((item) => {
-                return {
-                  item_id: item.itemId,
-                  title: item.title,
-                  sale_price: parseFloat(item.price.value) || 0,
-                  image_url: item.image?.imageUrl,
-                  condition: item.condition || 'Unknown',
-                  date_sold: new Date().toISOString(),
-                  link: item.itemWebUrl,
-                  buying_format: item.buyingOptions?.[0] || 'Current Listing',
-                  shipping_price: item.shippingOptions?.[0]?.shippingCost ? parseFloat(item.shippingOptions[0].shippingCost.value) : 0,
-                  source_website: 'ebay.com',
-                  // Current listings specific data
-                  seller: item.seller,
-                  additionalImages: item.additionalImages,
-                  topRatedBuyingExperience: item.topRatedBuyingExperience,
-                  buyingOptions: item.buyingOptions,
-                  itemOriginDate: item.itemOriginDate,
-                };
-              });
-              
-              const mappedResults = convertedItems.map(item => mapEbayItemToSearchResult(item, 'Image Search'));
-              
-              // Populate Current Listings tab with the eBay image search results
-              setListingsResults(mappedResults);
-              setListingsStats(stats);
-              setListingsItemFlags(convertedItems.map(() => ({ isOutlier: null, isMostRecent: false })));
-              
-              console.log('✅ Populated Current Listings tab with', mappedResults.length, 'items');
-              
-              // Set the search query (use original title for Current Listings)
-              setSearchQuery(identifiedTitle);
-              
-            } else {
-              setListingsError('Could not find items matching this image. Please try again.');
-            }
-          } catch (err) {
-            console.error('Auto image search error:', err);
-            setListingsError('Failed to search by image. Please try again.');
-          }
-          setIsLoading(false);
-        }, 100);
+        // ✅ REMOVED: Auto-search logic - let user press search button
+        // The search button will now trigger handleSearch() which has proper scan tracking
       }
       
     } catch (err) {
@@ -1184,6 +1127,13 @@ export default function SearchScreen() {
                   <>
                     <SearchStatsCard 
                       stats={stats} 
+                      firstItem={results.length > 0 ? {
+                        itemId: results[0].itemId,
+                        title: results[0].title,
+                        image: results[0].image,
+                        url: results[0].url,
+                        additionalImages: results[0].additionalImages
+                      } : undefined}
                       purchasePrice={purchasePrice && !isNaN(parseFloat(purchasePrice)) ? parseFloat(purchasePrice) : undefined} 
                       searchTitle={searchQuery} 
                       onViewAnalysis={stats?.data_source === 'ai_web_search' ? handleViewMarketAnalysis : undefined}

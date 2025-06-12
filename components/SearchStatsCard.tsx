@@ -30,6 +30,13 @@ interface SearchStatsCardProps {
     source?: string;
     market_summary?: string;
   };
+  firstItem?: {
+    itemId?: string;
+    title?: string;
+    image?: string;
+    url?: string;
+    additionalImages?: Array<{ imageUrl: string }>;
+  };
   purchasePrice?: number;
   searchTitle?: string;
   onViewAnalysis?: () => void;
@@ -53,7 +60,7 @@ function isNonEmptyString(val: unknown): val is string {
   return typeof val === 'string' && val.trim() !== '';
 }
 
-export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onViewAnalysis, selectedImage }: SearchStatsCardProps) {
+export default function SearchStatsCard({ stats, firstItem, purchasePrice, searchTitle, onViewAnalysis, selectedImage }: SearchStatsCardProps) {
   const [locked, setLocked] = useState(false);
   const [haulId, setHaulId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -99,15 +106,20 @@ export default function SearchStatsCard({ stats, purchasePrice, searchTitle, onV
     // Add item to haul_items
     console.log('LOCK TO HAUL: priceToUse', priceToUse);
     const margin = stats && priceToUse !== undefined ? (Number(stats.average_price) - Number(priceToUse)) : 0;
+    
+    // Prepare additional images array
+    const additionalImages = firstItem?.additionalImages?.map((img: { imageUrl: string }) => img.imageUrl) || [];
+    
     await supabase.from('haul_items').insert({
       haul_id: currentHaulId,
-      ebay_item_id: stats?.itemId || '',
-      title: searchTitle || stats?.title || '',
-      image_url: stats?.image || '',
+      ebay_item_id: firstItem?.itemId || stats?.itemId || '',
+      title: searchTitle || firstItem?.title || stats?.title || '',
+      image_url: firstItem?.image || stats?.image || '',
+      additional_images: additionalImages,
       sale_price: stats?.average_price || 0,
       purchase_price: priceToUse !== undefined ? priceToUse : 0,
       margin,
-      link: stats?.url || '',
+      link: firstItem?.url || stats?.url || '',
       locked: true,
     });
     setLocked(true);

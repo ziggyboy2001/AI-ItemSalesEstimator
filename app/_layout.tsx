@@ -17,6 +17,8 @@ import {
 import AuthScreen from './AuthScreen';
 import { useAuth } from '@/hooks/useAuth';
 import { View, ActivityIndicator } from 'react-native';
+import EbayOAuthHandler from '@/components/EbayOAuthHandler';
+import SubscriptionDeepLinkHandler from '@/components/SubscriptionDeepLinkHandler';
 
 // Keep the splash screen visible until fonts are loaded
 SplashScreen.preventAutoHideAsync();
@@ -56,6 +58,16 @@ function AppContent() {
           <Stack.Screen name="account-settings" options={{ presentation: 'modal', animation: 'slide_from_right' }} />
         </Stack>
         <StatusBar style="auto" />
+        
+        {/* Handle eBay OAuth callbacks */}
+        <EbayOAuthHandler 
+          userId={user.id} 
+          onAuthComplete={(success, username) => {
+            console.log('eBay OAuth completed:', { success, username });
+            // The individual components will handle their own state updates
+            // when they detect the connection change
+          }}
+        />
       </GestureHandlerRootView>
     </SubscriptionProvider>
   );
@@ -87,6 +99,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
+      <SubscriptionDeepLinkHandler />
       <AppContent />
     </ThemeProvider>
   );
