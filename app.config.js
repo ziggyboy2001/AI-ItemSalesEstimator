@@ -48,9 +48,15 @@ export default {
     extra: {
       OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
       PERPLEXITY_API_KEY: process.env.EXPO_PUBLIC_PERPLEXITY_API_KEY,
+      ebayClientId: process.env.EBAY_CLIENT_ID || 'KeithZah-bidpeek-PRD-9efff03ae-f2d8c8c1',
+      ebayClientSecret: process.env.EBAY_CLIENT_SECRET || 'PRD-efff03ae1b85-75a1-442e-8910-1b22',
       eas: {
         projectId: '6ce7af29-946f-4907-ab49-0afa92e97b72',
       },
+      supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+      ebayProdClientId: process.env.EBAY_PROD_CLIENT_ID,
+      ebayProdClientSecret: process.env.EBAY_PROD_CLIENT_SECRET,
     },
   },
 };

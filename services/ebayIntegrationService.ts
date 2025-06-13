@@ -30,13 +30,14 @@ export interface EbayAccount {
  * Check if user has connected eBay account
  */
 export async function getUserEbayAccount(userId: string): Promise<EbayAccount | null> {
-  console.log('🔍 Checking eBay account for user:', userId, 'is_sandbox:', __DEV__);
+  const IS_SANDBOX = false; // Force production mode
+  console.log('🔍 Checking eBay account for user:', userId, 'is_sandbox:', IS_SANDBOX);
   
   const { data, error } = await supabase
     .from('user_ebay_accounts')
     .select('*')
     .eq('user_id', userId)
-    .eq('is_sandbox', __DEV__)
+    .eq('is_sandbox', IS_SANDBOX)
     .single();
     
   console.log('📊 Database query result:', { data: !!data, error: error?.code || null });
@@ -96,7 +97,7 @@ export async function handleEbayOAuthCallback(
         expires_at: expiresAt.toISOString(),
         ebay_user_id: userInfo.userId,
         ebay_username: userInfo.username,
-        is_sandbox: __DEV__,
+        is_sandbox: false, // Force production mode
         updated_at: new Date().toISOString()
       }, {
         onConflict: 'user_id,is_sandbox'
@@ -377,7 +378,7 @@ export async function disconnectEbayAccount(userId: string): Promise<void> {
     .from('user_ebay_accounts')
     .delete()
     .eq('user_id', userId)
-    .eq('is_sandbox', __DEV__);
+          .eq('is_sandbox', false); // Force production mode
     
   if (error) {
     throw error;

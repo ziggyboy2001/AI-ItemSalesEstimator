@@ -3,6 +3,16 @@
 
 export class EbayErrorHandler {
   static getUserFriendlyError(error: string): string {
+    if (error.includes('Game Name\'s value') && error.includes('is too long')) {
+      return 'The game name is too long. Please shorten your listing title to 65 characters or less.';
+    }
+
+    if (error.includes('is too long') && error.includes('no more than')) {
+      const match = error.match(/no more than (\d+) characters/);
+      const limit = match ? match[1] : '65';
+      return `Your listing title is too long. Please shorten it to ${limit} characters or less.`;
+    }
+
     if (error === 'CATEGORY_NOT_LEAF') {
       return 'The selected category is too broad. Please choose a more specific category for your item.';
     }

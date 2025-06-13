@@ -13,6 +13,7 @@ import {
   Dimensions
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import Constants from 'expo-constants';
 
 const { width } = Dimensions.get('window');
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
@@ -21,8 +22,12 @@ import { useThemeColor } from '@/constants/useThemeColor';
 import { Picker } from '@react-native-picker/picker';
 import { OPENAI_API_KEY } from '@env';
 import { CategoryIntelligenceService, SmartCategoryResult, DynamicField } from '../services/categoryIntelligenceService';
-import { testEbayTaxonomyAPI } from '../services/testEbayAPI';
 import { PerformanceMonitor } from '../services/performanceMonitor';
+
+
+// eBay credentials from environment variables
+const EBAY_CLIENT_ID = Constants.expoConfig?.extra?.ebayClientId;
+const EBAY_CLIENT_SECRET = Constants.expoConfig?.extra?.ebayClientSecret;
 
 interface HaulItem {
   id: string;
@@ -39,6 +44,7 @@ interface EbayListingModalProps {
   onSubmit: (config: ListingConfiguration) => void;
   item: HaulItem | null;
   loading?: boolean;
+  userId?: string;
 }
 
 export interface ListingConfiguration {
@@ -79,7 +85,8 @@ export default function EbayListingModal({
   onClose, 
   onSubmit, 
   item, 
-  loading = false 
+  loading = false,
+  userId
 }: EbayListingModalProps) {
   const [categoryId, setCategoryId] = useState('');
   const [condition, setCondition] = useState<ListingConfiguration['condition']>('USED_EXCELLENT');
@@ -121,56 +128,62 @@ export default function EbayListingModal({
     }
   }, [visible, item]);
 
+  // Get eBay access token for API calls - use the user's stored token
+  const getEbayAccessToken = async (): Promise<string> => {
+    try {
+      if (!userId) {
+        throw new Error('User ID is required');
+      }
+      
+      // Import the integration service to get user's token
+      const { getValidAccessToken } = await import('../services/ebayIntegrationService');
+      
+      // Use the user's stored eBay token
+      return await getValidAccessToken(userId);
+    } catch (error) {
+      console.error('❌ Failed to get user access token:', error);
+      throw error;
+    }
+  };
+
   const analyzeItemIntelligently = async () => {
     setIsAnalyzing(true);
     try {
-      console.log('🧠 Phase 2: Starting intelligent analysis for:', item?.title);
+      console.log('🧠 Starting intelligent analysis for:', item?.title);
       
-      // For now, we'll test the API integration
-      const testResult = await testEbayTaxonomyAPI();
-      if (testResult) {
-        console.log('✅ eBay API test successful, ready for intelligent analysis');
-        
-        // Phase 2 Step 2.2: Create mock analysis to test dynamic fields
-        const mockAnalysis: SmartCategoryResult = {
-          recommendedCategory: '175672',
-          suggestedCategories: [
-            {
-              categoryId: '175672',
-              categoryName: 'Video Games & Consoles > Video Games',
-              confidence: 'HIGH' as const,
-              autoDetectedAspects: {
-                'Platform': ['PlayStation 5'],
-                'Genre': ['Action']
-              },
-              requiredUserInput: ['Brand', 'Game Name', 'Condition Details']
-            },
-            {
-              categoryId: '58058',
-              categoryName: 'Electronics > Cell Phones & Smartphones',
-              confidence: 'MEDIUM' as const,
-              autoDetectedAspects: {
-                'Brand': ['Apple']
-              },
-              requiredUserInput: ['Model', 'Storage Capacity', 'Color']
-            }
-          ]
-        };
-        
-        setCategoryAnalysis(mockAnalysis);
-        
-        // Auto-select the recommended category and load its fields
-        setCategoryId(mockAnalysis.recommendedCategory);
-        await loadDynamicFieldsForCategory(mockAnalysis.recommendedCategory, 0);
-        
-        console.log('🎯 Mock analysis complete with dynamic fields');
+      // Get access token for eBay APIs
+      const accessToken = await getEbayAccessToken();
+      const intelligenceService = new CategoryIntelligenceService(accessToken);
+      
+      // Use real eBay API analysis
+      const description = await generateDefaultDescription(item!);
+      const realAnalysis = await intelligenceService.analyzeItem(
+        item?.title || '',
+        description
+      );
+      
+      if (realAnalysis.suggestedCategories.length === 0) {
+        Alert.alert(
+          'No Categories Found', 
+          'eBay could not suggest categories for this item. Please try editing the title to be more descriptive.'
+        );
+        return;
       }
+      
+      setCategoryAnalysis(realAnalysis);
+      setCategoryId(realAnalysis.recommendedCategory);
+      await loadDynamicFieldsForCategory(realAnalysis.recommendedCategory, 0);
+      
+      console.log('✅ Real analysis complete with', realAnalysis.suggestedCategories.length, 'suggestions');
     } catch (error) {
       console.error('❌ Failed to analyze item:', error);
-      // Fallback to manual category selection
+      Alert.alert(
+        'Analysis Failed', 
+        'Could not analyze this item. Please check your internet connection and try again.'
+      );
     } finally {
       setIsAnalyzing(false);
-        }
+    }
   };
 
   // Phase 2: Handle category selection change
@@ -180,7 +193,7 @@ export default function EbayListingModal({
     await loadDynamicFieldsForCategory(newCategoryId, suggestionIndex);
   };
 
-  // Phase 2 Step 2.2: Load dynamic fields when category changes
+  // Load dynamic fields when category changes
   const loadDynamicFieldsForCategory = async (categoryId: string, suggestionIndex: number) => {
     if (!categoryAnalysis) return;
 
@@ -193,31 +206,29 @@ export default function EbayListingModal({
       ...suggestion.autoDetectedAspects,
     }));
 
-    // Create dynamic fields for required user input
-    const fields: DynamicField[] = [];
-
     try {
-      // For now, we'll simulate the dynamic fields based on the suggestion's requiredUserInput
-      // In production, this would use: intelligenceService.taxonomyService.getItemAspectsForCategory(categoryId)
+      // Use real eBay API to get category aspects
+      const accessToken = await getEbayAccessToken();
+      const intelligenceService = new CategoryIntelligenceService(accessToken);
       
-      for (const requiredField of suggestion.requiredUserInput) {
-        const field: DynamicField = {
-          name: requiredField,
-          label: requiredField,
-          type: getFieldTypeForAspect(requiredField),
-          required: true,
-          options: getOptionsForAspect(requiredField),
-          placeholder: `Enter ${requiredField.toLowerCase()}`,
-          helpText: 'Required by eBay',
-        };
-
-        fields.push(field);
-      }
-
-      setDynamicFields(fields);
-      console.log('🔧 Loaded dynamic fields for category:', categoryId, fields);
+      const aspects = await intelligenceService.taxonomyService.getItemAspectsForCategory(categoryId);
+      const dynamicFields = intelligenceService.createDynamicFields(aspects, suggestion.autoDetectedAspects);
+      
+      setDynamicFields(dynamicFields);
+      console.log('🔧 Loaded real dynamic fields for category:', categoryId, dynamicFields);
     } catch (error) {
       console.error('Failed to load category aspects:', error);
+      // Fallback to suggestion's requiredUserInput for now
+      const fields: DynamicField[] = suggestion.requiredUserInput.map(fieldName => ({
+        name: fieldName,
+        label: fieldName,
+        type: 'text' as const,
+        required: true,
+        placeholder: `Enter ${fieldName.toLowerCase()}`,
+        helpText: 'Required by eBay',
+      }));
+      
+      setDynamicFields(fields);
     }
   };
 
@@ -273,26 +284,30 @@ export default function EbayListingModal({
       const errors: string[] = [];
 
       try {
-      // Validate required dynamic fields
-      for (const field of dynamicFields) {
-        if (field.required && !userAspects[field.name]?.length) {
-          errors.push(`${field.label} is required`);
+        // ✅ NEW: Validate title length (eBay has 80 character limit)
+        if (editableTitle && editableTitle.length > 80) {
+          errors.push('Title must be 80 characters or less');
         }
-      }
+        
+        // ✅ NEW: Validate Game Name aspect length if present
+        if (userAspects['Game Name'] && userAspects['Game Name'][0]?.length > 65) {
+          errors.push('Game name must be 65 characters or less');
+        }
+        
+        // Validate required dynamic fields
+        for (const field of dynamicFields) {
+          if (field.required && !userAspects[field.name]?.length) {
+            errors.push(`${field.label} is required`);
+          }
+        }
 
-      // Basic validation for other fields
-      if (!categoryId) {
-        errors.push('Category is required');
-      }
-      if (!price || parseFloat(price) <= 0) {
-        errors.push('Valid price is required');
-      }
-
-      // TODO: In production, validate category is leaf using:
-      // const isLeaf = await intelligenceService.taxonomyService.validateLeafCategory(categoryId);
-      // if (!isLeaf) {
-      //   errors.push('Selected category is too broad. Please choose a more specific category.');
-      // }
+        // Basic validation for other fields
+        if (!categoryId) {
+          errors.push('Category is required');
+        }
+        if (!price || parseFloat(price) <= 0) {
+          errors.push('Valid price is required');
+        }
 
         setValidationErrors(errors);
         return errors.length === 0;
@@ -304,6 +319,37 @@ export default function EbayListingModal({
         setIsValidating(false);
       }
     }, dynamicFields.length);
+  };
+
+  // ✅ NEW: Helper function for validation (add this near the other helper functions)
+  const extractGameNameForValidation = (title: string): string => {
+    let gameName = title;
+    
+    // Remove common platform indicators (same logic as backend)
+    const platformIndicators = [
+      /\bgba\b/gi,
+      /\bgame boy advance\b/gi,
+      /\bnintendo ds\b/gi,
+      /\b3ds\b/gi,
+      /\bnintendo switch\b/gi,
+      /\bswitch\b/gi,
+      /\bplaystation\b/gi,
+      /\bps[1-5]\b/gi,
+      /\bxbox\b/gi,
+      /\bnintendo\b/gi
+    ];
+    
+    platformIndicators.forEach(indicator => {
+      gameName = gameName.replace(indicator, '');
+    });
+    
+    gameName = gameName.replace(/\s+/g, ' ').trim();
+    
+    if (gameName.length < 3) {
+      gameName = title;
+    }
+    
+    return gameName;
   };
 
   // Handle adding new image
@@ -733,6 +779,16 @@ Return only the description text, nothing else.`
               <View style={styles.sectionHeader}>
                 <FileText size={20} color={tintColor} />
                 <Text style={[styles.sectionTitle, { color: textColor }]}>Listing Title</Text>
+                {(categoryId === '139973' || categoryId === '175672') && (
+                  <Text style={[
+                    styles.characterCount, 
+                    { 
+                      color: extractGameNameForValidation(editableTitle).length > 65 ? errorColor : subtleText 
+                    }
+                  ]}>
+                    Game: {extractGameNameForValidation(editableTitle).length}/65
+                  </Text>
+                )}
               </View>
               <TextInput
                 style={[styles.titleInput, { 
@@ -740,7 +796,16 @@ Return only the description text, nothing else.`
                   color: textColor 
                 }]}
                 value={editableTitle}
-                onChangeText={setEditableTitle}
+                onChangeText={(text) => {
+                  setEditableTitle(text);
+                  // Real-time validation
+                  if (text.length > 80) {
+                    Alert.alert(
+                      'Title Too Long',
+                      'eBay titles must be 80 characters or less'
+                    );
+                  }
+                }}
                 placeholder="Enter listing title..."
                 placeholderTextColor={subtleText}
                 maxLength={80}
@@ -748,6 +813,11 @@ Return only the description text, nothing else.`
               />
               <Text style={[styles.helperText, { color: subtleText }]}>
                 Create an attractive title for your listing (max 80 characters)
+                {(categoryId === '139973' || categoryId === '175672') && (
+                  <Text style={{ color: extractGameNameForValidation(editableTitle).length > 65 ? errorColor : subtleText }}>
+                    {'\n'}Game name will be: "{extractGameNameForValidation(editableTitle).substring(0, 65)}"
+                  </Text>
+                )}
               </Text>
             </Animated.View>
 
@@ -1382,5 +1452,10 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 14,
     marginBottom: 4,
+  },
+  characterCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 }); 

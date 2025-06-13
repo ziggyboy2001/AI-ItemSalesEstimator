@@ -323,10 +323,11 @@ export async function listHaulItemOnEbay(
       description: config.description || generateDescription(haulItem),
       imageUrls: (config.images ? config.images.map(ensureProtocol) : allImages).slice(0, 12), // Use user images if provided, otherwise eBay allows max 12 images
       // ENHANCED: Include all aspects (auto-detected + user-provided)
-      aspects: {
-        ...generateItemAspects(config.categoryId, haulItem.title), // Fallback aspects
-        ...config.aspects, // User-provided aspects take precedence
-      },
+      aspects: generateItemAspects(
+        config.categoryId, 
+        config.title || haulItem.title, // Use user's edited title
+        config.aspects // Use aspects from CategoryIntelligenceService
+      ),
     },
     condition: config.condition,
     availability: {
@@ -403,43 +404,16 @@ export async function listHaulItemOnEbay(
 
 /**
  * Generate item aspects (item specifics) based on category and title
+ * Now uses aspects from CategoryIntelligenceService instead of hardcoded video game logic
  */
-function generateItemAspects(categoryId: string, title: string): Record<string, string[]> {
-  const aspects: Record<string, string[]> = {};
-  
-  // Video game categories require Platform and Game Name
-  if (categoryId === '139973') { // Nintendo Game Boy Advance
-    aspects['Platform'] = ['Nintendo Game Boy Advance'];
-    aspects['Game Name'] = [extractGameName(title)];
-  } else if (categoryId === '175672') { // General Video Games
-    // Try to detect platform from title
-    const titleLower = title.toLowerCase();
-    if (titleLower.includes('gba') || titleLower.includes('game boy advance')) {
-      aspects['Platform'] = ['Nintendo Game Boy Advance'];
-      aspects['Game Name'] = [extractGameName(title)];
-    } else if (titleLower.includes('ds') || titleLower.includes('nintendo ds')) {
-      aspects['Platform'] = ['Nintendo DS'];
-      aspects['Game Name'] = [extractGameName(title)];
-    } else if (titleLower.includes('3ds')) {
-      aspects['Platform'] = ['Nintendo 3DS'];
-      aspects['Game Name'] = [extractGameName(title)];
-    } else if (titleLower.includes('switch')) {
-      aspects['Platform'] = ['Nintendo Switch'];
-      aspects['Game Name'] = [extractGameName(title)];
-    } else if (titleLower.includes('playstation') || titleLower.includes('ps')) {
-      aspects['Platform'] = ['Sony PlayStation'];
-      aspects['Game Name'] = [extractGameName(title)];
-    } else if (titleLower.includes('xbox')) {
-      aspects['Platform'] = ['Microsoft Xbox'];
-      aspects['Game Name'] = [extractGameName(title)];
-    } else {
-      // Default fallback
-      aspects['Platform'] = ['Nintendo Game Boy Advance'];
-      aspects['Game Name'] = [extractGameName(title)];
-    }
-  }
-  
-  return aspects;
+function generateItemAspects(
+  categoryId: string, 
+  title: string, 
+  userAspects?: Record<string, string[]>
+): Record<string, string[]> {
+  // Use user-provided aspects if available, otherwise return empty
+  // The CategoryIntelligenceService will handle auto-detection for all categories
+  return userAspects || {};
 }
 
 /**
@@ -472,6 +446,12 @@ function extractGameName(title: string): string {
   // If the cleaned name is too short or empty, use the original title
   if (gameName.length < 3) {
     gameName = title;
+  }
+  
+  // ✅ NEW: Enforce eBay's 65-character limit for Game Name
+  if (gameName.length > 65) {
+    gameName = gameName.substring(0, 65).trim();
+    console.log('⚠️ Game Name truncated to 65 characters:', gameName);
   }
   
   return gameName;

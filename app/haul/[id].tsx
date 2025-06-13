@@ -526,6 +526,7 @@ export default function HaulDetailsScreen() {
         onSubmit={handleSubmitListing}
         item={selectedItem}
         loading={listingLoading}
+        userId={userId || undefined}
       />
 
       {/* eBay OAuth Modal */}

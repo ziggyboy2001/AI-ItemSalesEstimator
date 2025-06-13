@@ -1,5 +1,6 @@
 // React Native/Expo compatibility
 import 'react-native-url-polyfill/auto';
+import Constants from 'expo-constants';
 
 interface EbayTaxonomyConfig {
   baseUrl: string;
@@ -7,13 +8,25 @@ interface EbayTaxonomyConfig {
   accessToken: string;
 }
 
+interface Category {
+  categoryId: string;
+  categoryName: string;
+}
+
 interface CategorySuggestion {
-  category: {
-    categoryId: string;
-    categoryName: string;
-  };
+  category: Category;
   categoryTreeNodeLevel: number;
-  relevancy: string; // "HIGH", "MEDIUM", "LOW"
+  categoryTreeNodeAncestors?: Category[];
+  relevancy?: string;
+}
+
+interface CategorySuggestionsResponse {
+  categorySuggestions: CategorySuggestion[];
+}
+
+interface CategoryTreeResponse {
+  categoryTreeId: string;
+  categoryTreeVersion: string;
 }
 
 interface ItemAspect {
@@ -48,34 +61,28 @@ export class EbayTaxonomyService {
   // STEP 1: Get category tree ID for marketplace
   async getDefaultCategoryTreeId(): Promise<string> {
     try {
-      console.log('🌳 Getting default category tree ID for US marketplace...');
+      const url = `${this.config.baseUrl}/get_default_category_tree_id?marketplace_id=EBAY_US`;
       
-      const response = await fetch(
-        `${this.config.baseUrl}/get_default_category_tree_id?marketplace_id=EBAY_US`,
-        {
-          headers: {
-            Authorization: `Bearer ${this.config.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Failed to get category tree ID:', errorText);
-        throw new Error(`Failed to get category tree ID: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to get category tree: ${response.status} - ${errorText}`);
       }
 
-      const data = await response.json();
-      const treeId = data.categoryTreeId;
+      const data: CategoryTreeResponse = await response.json();
+      this.config.categoryTreeId = data.categoryTreeId;
       
-      // Update our config with the actual tree ID
-      this.config.categoryTreeId = treeId;
-      
-      console.log('✅ Got category tree ID:', treeId);
-      return treeId;
+      console.log('✅ Got category tree ID:', data.categoryTreeId);
+      return data.categoryTreeId;
     } catch (error) {
-      console.error('❌ getDefaultCategoryTreeId error:', error);
+      console.error('❌ Failed to get default category tree ID:', error);
       throw error;
     }
   }
@@ -83,42 +90,32 @@ export class EbayTaxonomyService {
   // STEP 2: Get category suggestions (THE GOLDEN API)
   async getCategorySuggestions(query: string): Promise<CategorySuggestion[]> {
     try {
-      console.log('🔍 Getting category suggestions for:', query);
-      
-      // Ensure we have the tree ID
-      if (!this.config.categoryTreeId || this.config.categoryTreeId === '0') {
-        await this.getDefaultCategoryTreeId();
-      }
 
-      const response = await fetch(
-        `${this.config.baseUrl}/category_tree/${
-          this.config.categoryTreeId
-        }/get_category_suggestions?q=${encodeURIComponent(query)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${this.config.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const encodedQuery = encodeURIComponent(query);
+      const url = `https://api.ebay.com/commerce/taxonomy/v1/category_tree/0/get_category_suggestions?q=${encodedQuery}`;
+      
+      console.log('🔍 Making production getCategorySuggestions request:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Failed to get category suggestions:', errorText);
-        throw new Error(`Failed to get category suggestions: ${response.status} ${response.statusText}`);
+        console.error('❌ Category suggestions error response:', errorText);
+        throw new Error(`Failed to get category suggestions: ${response.status} - ${errorText}`);
       }
 
-      const data = await response.json();
-      const suggestions = data.categorySuggestions || [];
+      const data: CategorySuggestionsResponse = await response.json();
+      console.log('✅ Got category suggestions:', data.categorySuggestions?.length || 0, 'suggestions');
       
-      console.log(`✅ Got ${suggestions.length} category suggestions`);
-      suggestions.forEach((suggestion: CategorySuggestion, index: number) => {
-        console.log(`  ${index + 1}. ${suggestion.category.categoryName} (${suggestion.relevancy})`);
-      });
-
-      return suggestions;
+      return data.categorySuggestions || [];
     } catch (error) {
-      console.error('❌ getCategorySuggestions error:', error);
+      console.error('❌ Failed to get category suggestions:', error);
       throw error;
     }
   }
@@ -126,30 +123,24 @@ export class EbayTaxonomyService {
   // STEP 3: Get required aspects for category (DYNAMIC FIELDS API)
   async getItemAspectsForCategory(categoryId: string): Promise<ItemAspect[]> {
     try {
-      console.log('📋 Getting item aspects for category:', categoryId);
+      const url = `${this.config.baseUrl}/category_tree/${this.config.categoryTreeId}/get_item_aspects_for_category?category_id=${categoryId}`;
       
-      // Ensure we have the tree ID
-      if (!this.config.categoryTreeId || this.config.categoryTreeId === '0') {
-        await this.getDefaultCategoryTreeId();
-      }
-
-      const response = await fetch(
-        `${this.config.baseUrl}/category_tree/${this.config.categoryTreeId}/get_item_aspects_for_category?category_id=${categoryId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${this.config.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Failed to get item aspects:', errorText);
-        throw new Error(`Failed to get item aspects: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to get item aspects: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('✅ Got item aspects for category:', categoryId);
+      
       const aspects = data.aspects || [];
       
       const requiredAspects = aspects.filter((aspect: ItemAspect) => aspect.aspectConstraint.aspectRequired);
@@ -162,7 +153,7 @@ export class EbayTaxonomyService {
 
       return aspects;
     } catch (error) {
-      console.error('❌ getItemAspectsForCategory error:', error);
+      console.error('❌ Failed to get item aspects for category:', error);
       throw error;
     }
   }

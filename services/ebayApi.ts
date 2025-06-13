@@ -640,7 +640,8 @@ export {};
 // ==== SEPARATE EBAY LISTING CONFIGURATION (does not affect search functionality) ====
 
 // Environment configuration for eBay listing APIs only
-const IS_SANDBOX = __DEV__ || process.env.NODE_ENV !== 'production';
+// const IS_SANDBOX = __DEV__ || process.env.NODE_ENV !== 'production';
+const IS_SANDBOX = false;
 
 export const EBAY_LISTING_CONFIG = {
   production: {
@@ -650,7 +651,7 @@ export const EBAY_LISTING_CONFIG = {
     inventoryUrl: 'https://api.ebay.com/sell/inventory/v1',
     accountUrl: 'https://api.ebay.com/sell/account/v1',
     oauthUrl: 'https://auth.ebay.com/oauth2/authorize',
-    redirectUri: 'https://bidpeek.app'
+    redirectUri: 'https://stately-daifuku-7ed3de.netlify.app'
   },
   sandbox: {
     clientId: 'KeithZah-bidpeek-SBX-aa6d579f2-15df5368',
@@ -668,9 +669,9 @@ export const LISTING_CONFIG = EBAY_LISTING_CONFIG[IS_SANDBOX ? 'sandbox' : 'prod
 // OAuth scopes for user listing permissions only
 export const EBAY_USER_SCOPES = [
   'https://api.ebay.com/oauth/api_scope',
-  'https://api.ebay.com/oauth/api_scope/sell.item',
   'https://api.ebay.com/oauth/api_scope/sell.inventory',
-  'https://api.ebay.com/oauth/api_scope/sell.account',
-  'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+  // 'https://api.ebay.com/oauth/api_scope/sell.item',
+  // 'https://api.ebay.com/oauth/api_scope/sell.account',
+  // 'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
   'https://api.ebay.com/oauth/api_scope/commerce.identity.readonly'
 ].join(' ');
