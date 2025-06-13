@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -16,10 +16,13 @@ import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
-import { X, DollarSign, Package, Tag, FileText, Trash2, Plus, Camera } from 'lucide-react-native';
+import { X, DollarSign, Package, Tag, FileText, Trash2, Plus, Camera, Brain, CheckCircle, AlertCircle } from 'lucide-react-native';
 import { useThemeColor } from '@/constants/useThemeColor';
 import { Picker } from '@react-native-picker/picker';
 import { OPENAI_API_KEY } from '@env';
+import { CategoryIntelligenceService, SmartCategoryResult, DynamicField } from '../services/categoryIntelligenceService';
+import { testEbayTaxonomyAPI } from '../services/testEbayAPI';
+import { PerformanceMonitor } from '../services/performanceMonitor';
 
 interface HaulItem {
   id: string;
@@ -45,6 +48,7 @@ export interface ListingConfiguration {
   description?: string;
   images?: string[];
   title?: string;
+  aspects?: Record<string, string[]>; // Phase 2 Step 2.2: Dynamic aspects
 }
 
 // Common eBay categories for quick selection
@@ -85,6 +89,15 @@ export default function EbayListingModal({
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [editableImages, setEditableImages] = useState<string[]>([]);
 
+  // Phase 2: New intelligent state
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [categoryAnalysis, setCategoryAnalysis] = useState<SmartCategoryResult | null>(null);
+  const [selectedCategoryIndex, setSelectedCategoryIndex] = useState(0);
+  const [dynamicFields, setDynamicFields] = useState<DynamicField[]>([]);
+  const [userAspects, setUserAspects] = useState<Record<string, string[]>>({});
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [isValidating, setIsValidating] = useState(false);
+
   // Theme colors
   const backgroundColor = useThemeColor('background');
   const textColor = useThemeColor('text');
@@ -94,7 +107,204 @@ export default function EbayListingModal({
   const cardColor = useThemeColor('background');
   const borderColor = useThemeColor('tabIconDefault');
 
+  // Phase 2: Initialize intelligence service
+  const intelligenceService = useMemo(() => {
+    // For now, we'll use the test API to get access token
+    // In production, this would use the user's eBay OAuth token
+    return null; // Will be initialized when we get the token
+  }, []);
 
+  // Phase 2: Auto-analyze item when modal opens
+  useEffect(() => {
+    if (visible && item) {
+      analyzeItemIntelligently();
+    }
+  }, [visible, item]);
+
+  const analyzeItemIntelligently = async () => {
+    setIsAnalyzing(true);
+    try {
+      console.log('🧠 Phase 2: Starting intelligent analysis for:', item?.title);
+      
+      // For now, we'll test the API integration
+      const testResult = await testEbayTaxonomyAPI();
+      if (testResult) {
+        console.log('✅ eBay API test successful, ready for intelligent analysis');
+        
+        // Phase 2 Step 2.2: Create mock analysis to test dynamic fields
+        const mockAnalysis: SmartCategoryResult = {
+          recommendedCategory: '175672',
+          suggestedCategories: [
+            {
+              categoryId: '175672',
+              categoryName: 'Video Games & Consoles > Video Games',
+              confidence: 'HIGH' as const,
+              autoDetectedAspects: {
+                'Platform': ['PlayStation 5'],
+                'Genre': ['Action']
+              },
+              requiredUserInput: ['Brand', 'Game Name', 'Condition Details']
+            },
+            {
+              categoryId: '58058',
+              categoryName: 'Electronics > Cell Phones & Smartphones',
+              confidence: 'MEDIUM' as const,
+              autoDetectedAspects: {
+                'Brand': ['Apple']
+              },
+              requiredUserInput: ['Model', 'Storage Capacity', 'Color']
+            }
+          ]
+        };
+        
+        setCategoryAnalysis(mockAnalysis);
+        
+        // Auto-select the recommended category and load its fields
+        setCategoryId(mockAnalysis.recommendedCategory);
+        await loadDynamicFieldsForCategory(mockAnalysis.recommendedCategory, 0);
+        
+        console.log('🎯 Mock analysis complete with dynamic fields');
+      }
+    } catch (error) {
+      console.error('❌ Failed to analyze item:', error);
+      // Fallback to manual category selection
+    } finally {
+      setIsAnalyzing(false);
+        }
+  };
+
+  // Phase 2: Handle category selection change
+  const handleCategoryChange = async (newCategoryId: string, suggestionIndex: number) => {
+    setCategoryId(newCategoryId);
+    setSelectedCategoryIndex(suggestionIndex);
+    await loadDynamicFieldsForCategory(newCategoryId, suggestionIndex);
+  };
+
+  // Phase 2 Step 2.2: Load dynamic fields when category changes
+  const loadDynamicFieldsForCategory = async (categoryId: string, suggestionIndex: number) => {
+    if (!categoryAnalysis) return;
+
+    const suggestion = categoryAnalysis.suggestedCategories[suggestionIndex];
+    if (!suggestion) return;
+
+    // Set auto-detected aspects
+    setUserAspects((prev) => ({
+      ...prev,
+      ...suggestion.autoDetectedAspects,
+    }));
+
+    // Create dynamic fields for required user input
+    const fields: DynamicField[] = [];
+
+    try {
+      // For now, we'll simulate the dynamic fields based on the suggestion's requiredUserInput
+      // In production, this would use: intelligenceService.taxonomyService.getItemAspectsForCategory(categoryId)
+      
+      for (const requiredField of suggestion.requiredUserInput) {
+        const field: DynamicField = {
+          name: requiredField,
+          label: requiredField,
+          type: getFieldTypeForAspect(requiredField),
+          required: true,
+          options: getOptionsForAspect(requiredField),
+          placeholder: `Enter ${requiredField.toLowerCase()}`,
+          helpText: 'Required by eBay',
+        };
+
+        fields.push(field);
+      }
+
+      setDynamicFields(fields);
+      console.log('🔧 Loaded dynamic fields for category:', categoryId, fields);
+    } catch (error) {
+      console.error('Failed to load category aspects:', error);
+    }
+  };
+
+  // Helper function to determine field type based on aspect name
+  const getFieldTypeForAspect = (aspectName: string): DynamicField['type'] => {
+    const lowerName = aspectName.toLowerCase();
+    if (lowerName.includes('brand') || lowerName.includes('platform') || lowerName.includes('genre') || 
+        lowerName.includes('size') || lowerName.includes('color') || lowerName.includes('condition')) {
+      return 'select';
+    }
+    if (lowerName.includes('year') || lowerName.includes('number') || lowerName.includes('count')) {
+      return 'number';
+    }
+    return 'text';
+  };
+
+  // Helper function to get options for select fields
+  const getOptionsForAspect = (aspectName: string): string[] | undefined => {
+    const lowerName = aspectName.toLowerCase();
+    
+    if (lowerName.includes('brand')) {
+      return ['Apple', 'Samsung', 'Sony', 'Nintendo', 'Microsoft', 'LG', 'HP', 'Dell', 'Other'];
+    }
+    if (lowerName.includes('platform')) {
+      return ['PlayStation 5', 'PlayStation 4', 'Xbox Series X', 'Xbox One', 'Nintendo Switch', 'PC', 'Other'];
+    }
+    if (lowerName.includes('genre')) {
+      return ['Action', 'Adventure', 'RPG', 'Sports', 'Racing', 'Puzzle', 'Strategy', 'Other'];
+    }
+    if (lowerName.includes('size')) {
+      return ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Other'];
+    }
+    if (lowerName.includes('color')) {
+      return ['Black', 'White', 'Silver', 'Gold', 'Blue', 'Red', 'Green', 'Other'];
+    }
+    
+    return undefined; // Text input
+  };
+
+  // Phase 2 Step 2.2: Handle dynamic field changes
+  const handleDynamicFieldChange = (fieldName: string, value: string | string[]) => {
+    setUserAspects((prev) => ({
+      ...prev,
+      [fieldName]: Array.isArray(value) ? value : [value],
+    }));
+    console.log('📝 Dynamic field changed:', fieldName, value);
+  };
+
+  // Phase 2 Step 2.2: Pre-submission validation
+  const validateBeforeSubmission = async (): Promise<boolean> => {
+    return PerformanceMonitor.trackValidation(async () => {
+      setIsValidating(true);
+      const errors: string[] = [];
+
+      try {
+      // Validate required dynamic fields
+      for (const field of dynamicFields) {
+        if (field.required && !userAspects[field.name]?.length) {
+          errors.push(`${field.label} is required`);
+        }
+      }
+
+      // Basic validation for other fields
+      if (!categoryId) {
+        errors.push('Category is required');
+      }
+      if (!price || parseFloat(price) <= 0) {
+        errors.push('Valid price is required');
+      }
+
+      // TODO: In production, validate category is leaf using:
+      // const isLeaf = await intelligenceService.taxonomyService.validateLeafCategory(categoryId);
+      // if (!isLeaf) {
+      //   errors.push('Selected category is too broad. Please choose a more specific category.');
+      // }
+
+        setValidationErrors(errors);
+        return errors.length === 0;
+      } catch (error) {
+        console.error('Validation failed:', error);
+        setValidationErrors(['Validation failed. Please try again.']);
+        return false;
+      } finally {
+        setIsValidating(false);
+      }
+    }, dynamicFields.length);
+  };
 
   // Handle adding new image
   const handleAddImage = () => {
@@ -301,14 +511,10 @@ Return only the description text, nothing else.`
     return description.length < 301 ? description : description.substring(0, 300);
   };
 
-  const handleSubmit = () => {
-    if (!categoryId) {
-      Alert.alert('Missing Information', 'Please select a category for your listing.');
-      return;
-    }
-
-    if (!price || isNaN(Number(price)) || Number(price) <= 0) {
-      Alert.alert('Invalid Price', 'Please enter a valid price for your listing.');
+  const handleSubmit = async () => {
+    // Phase 2 Step 2.2: Pre-submission validation
+    const isValid = await validateBeforeSubmission();
+    if (!isValid) {
       return;
     }
 
@@ -323,9 +529,15 @@ Return only the description text, nothing else.`
       price: Number(price),
       description: description.trim() || undefined,
       images: editableImages, // Include user images
-      title: editableTitle.trim() || item?.title || ''
+      title: editableTitle.trim() || item?.title || '',
+      // Phase 2 Step 2.2: Include dynamic aspects
+      aspects: {
+        ...categoryAnalysis?.suggestedCategories[selectedCategoryIndex]?.autoDetectedAspects,
+        ...userAspects,
+      },
     };
 
+    console.log('🚀 Submitting listing with dynamic aspects:', config.aspects);
     onSubmit(config);
   };
 
@@ -433,6 +645,86 @@ Return only the description text, nothing else.`
               </View>
             </Animated.View>
 
+            {/* Phase 2: Analysis Loading State */}
+            {isAnalyzing && (
+              <Animated.View 
+                style={[styles.analysisContainer, { backgroundColor: 'rgba(128, 128, 128, 0.1)' }]}
+                entering={FadeInDown.delay(200).duration(400)}
+              >
+                <View style={styles.analysisContent}>
+                  <ActivityIndicator size="small" color={tintColor} />
+                  <Brain size={20} color={tintColor} style={{ marginLeft: 12 }} />
+                  <Text style={[styles.analysisText, { color: textColor }]}>
+                    Analyzing your item with eBay intelligence...
+                  </Text>
+                </View>
+              </Animated.View>
+            )}
+
+            {/* Phase 2: Smart Category Suggestions */}
+            {categoryAnalysis && !isAnalyzing && (
+              <Animated.View 
+                style={styles.section}
+                entering={FadeInDown.delay(250).duration(400)}
+              >
+                <View style={styles.sectionHeader}>
+                  <Brain size={20} color={tintColor} />
+                  <Text style={[styles.sectionTitle, { color: textColor }]}>Smart Category Suggestions</Text>
+                </View>
+                
+                {categoryAnalysis.suggestedCategories.map((suggestion, index) => (
+                  <TouchableOpacity
+                    key={suggestion.categoryId}
+                    style={[
+                      styles.categoryOption,
+                      { 
+                        borderColor: selectedCategoryIndex === index ? tintColor : borderColor + '40',
+                        backgroundColor: selectedCategoryIndex === index ? tintColor + '10' : 'transparent'
+                      }
+                    ]}
+                    onPress={() => handleCategoryChange(suggestion.categoryId, index)}
+                  >
+                    <View style={styles.categoryOptionContent}>
+                      <View style={styles.categoryHeader}>
+                        <Text style={[styles.categoryName, { color: textColor }]} numberOfLines={2}>
+                          {suggestion.categoryName}
+                        </Text>
+                        <View style={[
+                          styles.confidenceBadge,
+                          { backgroundColor: suggestion.confidence === 'HIGH' ? '#10B981' : 
+                                            suggestion.confidence === 'MEDIUM' ? '#F59E0B' : '#6B7280' }
+                        ]}>
+                          <Text style={styles.confidenceText}>{suggestion.confidence}</Text>
+                        </View>
+                      </View>
+                      
+                      {Object.keys(suggestion.autoDetectedAspects).length > 0 && (
+                        <View style={styles.autoDetectedContainer}>
+                          <CheckCircle size={14} color="#10B981" />
+                          <Text style={[styles.autoDetectedText, { color: subtleText }]}>
+                            Auto-detected: {Object.keys(suggestion.autoDetectedAspects).join(', ')}
+                          </Text>
+                        </View>
+                      )}
+                      
+                      {suggestion.requiredUserInput.length > 0 && (
+                        <View style={styles.requiredInputContainer}>
+                          <AlertCircle size={14} color="#F59E0B" />
+                          <Text style={[styles.requiredInputText, { color: subtleText }]}>
+                            You'll need to provide: {suggestion.requiredUserInput.join(', ')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                
+                <Text style={[styles.helperText, { color: subtleText }]}>
+                  eBay analyzed your item and suggests these categories. Green items are auto-detected.
+                </Text>
+              </Animated.View>
+            )}
+
                         {/* Editable Title */}
             <Animated.View 
               style={styles.section}
@@ -520,6 +812,95 @@ Return only the description text, nothing else.`
               </Text>
             </Animated.View>
 
+            {/* Phase 2 Step 2.2: Dynamic Fields Section */}
+            {dynamicFields.length > 0 && (
+              <Animated.View 
+                style={styles.section}
+                entering={FadeInDown.delay(400).duration(400)}
+              >
+                <View style={styles.sectionHeader}>
+                  <Brain size={20} color={tintColor} />
+                  <Text style={[styles.sectionTitle, { color: textColor }]}>Additional Information</Text>
+                </View>
+                
+                {dynamicFields.map((field) => (
+                  <View key={field.name} style={styles.dynamicField}>
+                    <Text style={[styles.fieldLabel, { color: textColor }]}>
+                      {field.label}
+                      {field.required && <Text style={[styles.required, { color: errorColor }]}> *</Text>}
+                    </Text>
+
+                    {field.type === 'select' ? (
+                      <View style={[styles.pickerContainer, { borderColor: borderColor + '40' }]}>
+                        <Picker
+                          selectedValue={userAspects[field.name]?.[0] || ''}
+                          onValueChange={(value) => handleDynamicFieldChange(field.name, value)}
+                          style={[styles.picker, { color: textColor }]}
+                          enabled={!loading}
+                        >
+                          <Picker.Item label={`Select ${field.label}`} value="" />
+                          {field.options?.map((option) => (
+                            <Picker.Item key={option} label={option} value={option} />
+                          ))}
+                        </Picker>
+                      </View>
+                    ) : field.type === 'number' ? (
+                      <TextInput
+                        style={[styles.input, { 
+                          borderColor: borderColor + '40', 
+                          color: textColor 
+                        }]}
+                        placeholder={field.placeholder}
+                        placeholderTextColor={subtleText}
+                        value={userAspects[field.name]?.[0] || ''}
+                        onChangeText={(value) => handleDynamicFieldChange(field.name, value)}
+                        keyboardType="numeric"
+                        editable={!loading}
+                      />
+                    ) : (
+                      <TextInput
+                        style={[styles.input, { 
+                          borderColor: borderColor + '40', 
+                          color: textColor 
+                        }]}
+                        placeholder={field.placeholder}
+                        placeholderTextColor={subtleText}
+                        value={userAspects[field.name]?.[0] || ''}
+                        onChangeText={(value) => handleDynamicFieldChange(field.name, value)}
+                        editable={!loading}
+                      />
+                    )}
+
+                    {field.helpText && (
+                      <Text style={[styles.helpText, { color: subtleText }]}>{field.helpText}</Text>
+                    )}
+                  </View>
+                ))}
+                
+                <Text style={[styles.helperText, { color: subtleText }]}>
+                  These fields are required by eBay for this category
+                </Text>
+              </Animated.View>
+            )}
+
+            {/* Phase 2 Step 2.2: Validation Errors */}
+            {validationErrors.length > 0 && (
+              <Animated.View 
+                style={styles.errorSection}
+                entering={FadeInDown.delay(450).duration(400)}
+              >
+                <View style={styles.sectionHeader}>
+                  <AlertCircle size={20} color={errorColor} />
+                  <Text style={[styles.sectionTitle, { color: errorColor }]}>Please Fix These Issues</Text>
+                </View>
+                {validationErrors.map((error, index) => (
+                  <Text key={index} style={[styles.errorText, { color: errorColor }]}>
+                    • {error}
+                  </Text>
+                ))}
+              </Animated.View>
+            )}
+
             {/* Price */}
             <Animated.View 
               style={styles.section}
@@ -599,12 +980,12 @@ Return only the description text, nothing else.`
                 backgroundColor: backgroundColor,
                 borderColor: tintColor,
                 borderWidth: 1,
-                opacity: loading ? 0.6 : 1 
+                opacity: (loading || isValidating) ? 0.6 : 1 
               }]}
               onPress={handleSubmit}
-              disabled={loading}
+              disabled={loading || isValidating}
             >
-              {loading ? (
+              {(loading || isValidating) ? (
                 <ActivityIndicator size="small" color={tintColor} />
               ) : (
                 <Text style={[styles.buttonText, { color: tintColor }]}>List Item</Text>
@@ -898,5 +1279,108 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  // Phase 2: Intelligent Analysis Styles
+  analysisContainer: {
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+  },
+  analysisContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analysisText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  categoryOption: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  categoryOptionContent: {
+    flex: 1,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  categoryName: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  confidenceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  autoDetectedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  autoDetectedText: {
+    fontSize: 12,
+    marginLeft: 6,
+    flex: 1,
+  },
+  requiredInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  requiredInputText: {
+    fontSize: 12,
+    marginLeft: 6,
+    flex: 1,
+  },
+  // Phase 2 Step 2.2: Dynamic Fields Styles
+  dynamicField: {
+    marginBottom: 16,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  required: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: 'rgba(128, 128, 128, 0.05)',
+    height: 50,
+  },
+  helpText: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  errorSection: {
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  errorText: {
+    fontSize: 14,
+    marginBottom: 4,
   },
 }); 

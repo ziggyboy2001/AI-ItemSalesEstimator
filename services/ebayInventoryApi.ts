@@ -1,4 +1,5 @@
 import { LISTING_CONFIG } from './ebayApi';
+import { EbayErrorHandler } from './ebayErrorHandlingService';
 
 export interface EbayInventoryItem {
   sku: string;
@@ -57,6 +58,7 @@ export interface ListingConfiguration {
   description?: string;
   title?: string; // Override haul item title if needed
   images?: string[]; // User-provided images
+  aspects?: Record<string, string[]>; // Phase 3 Step 3.1: Dynamic aspects
   fulfillmentPolicyId?: string;
   paymentPolicyId?: string;
   returnPolicyId?: string;
@@ -93,9 +95,17 @@ export async function createInventoryItem(
   console.log('📦 createInventoryItem: Response status:', response.status);
 
   if (!response.ok) {
-    const error = await response.text();
-    console.log('❌ createInventoryItem: Error response:', error);
-    throw new Error(`Failed to create inventory item: ${error}`);
+    const errorText = await response.text();
+    console.log('❌ createInventoryItem: Error response:', errorText);
+    
+    // Phase 3 Step 3.2: Enhanced error parsing
+    try {
+      const errorData = JSON.parse(errorText);
+      const parsedError = EbayErrorHandler.parseEbayError(errorData);
+      throw new Error(parsedError);
+    } catch (parseError) {
+      throw new Error(`Failed to create inventory item: ${errorText}`);
+    }
   }
 
   // PUT returns 204 No Content on success, or warnings if any
@@ -127,8 +137,16 @@ export async function createOffer(
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to create offer: ${error}`);
+    const errorText = await response.text();
+    
+    // Phase 3 Step 3.2: Enhanced error parsing
+    try {
+      const errorData = JSON.parse(errorText);
+      const parsedError = EbayErrorHandler.parseEbayError(errorData);
+      throw new Error(parsedError);
+    } catch (parseError) {
+      throw new Error(`Failed to create offer: ${errorText}`);
+    }
   }
 
   return await response.json();
@@ -151,8 +169,26 @@ export async function publishOffer(
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to publish offer: ${error}`);
+    const errorText = await response.text();
+    
+    // Phase 3 Step 3.2: Enhanced error parsing for publishing
+    try {
+      const errorData = JSON.parse(errorText);
+      const parsedError = EbayErrorHandler.parseEbayError(errorData);
+      
+      // Special handling for common publishing errors
+      if (parsedError.includes('not a leaf category')) {
+        throw new Error('CATEGORY_NOT_LEAF');
+      } else if (parsedError.includes('item specific') && parsedError.includes('missing')) {
+        const match = parsedError.match(/The item specific ([^.]+) is missing/);
+        const missingField = match ? match[1] : 'required field';
+        throw new Error(`MISSING_REQUIRED_FIELD:${missingField}`);
+      }
+      
+      throw new Error(parsedError);
+    } catch (parseError) {
+      throw new Error(`Failed to publish offer: ${errorText}`);
+    }
   }
 
   return await response.json();
@@ -230,25 +266,28 @@ export async function listHaulItemOnEbay(
   haulItem: HaulItem,
   config: ListingConfiguration
 ): Promise<{ 
-  sku: string; 
-  offerId: string; 
-  listingId: string; 
-  itemWebUrl?: string 
+  success: boolean;
+  sku?: string; 
+  offerId?: string; 
+  listingId?: string; 
+  itemWebUrl?: string;
+  error?: string;
 }> {
-  console.log('🏪 listHaulItemOnEbay: Starting with params:', {
-    haulItemId: haulItem.id,
-    haulItemTitle: haulItem.title,
-    configPrice: config.price,
-    configCategoryId: config.categoryId,
-    configCondition: config.condition,
-    hasDescription: !!config.description,
-    hasImages: !!(haulItem.image_url || haulItem.additional_images?.length)
-  });
-  
-  console.log('🔍 DEBUG: Function version check - location creation enabled');
-  
-  // Skip location setup - let eBay handle it automatically
-  console.log('⚠️ listHaulItemOnEbay: Skipping location setup for sandbox compatibility');
+  try {
+    console.log('🏪 listHaulItemOnEbay: Starting with params:', {
+      haulItemId: haulItem.id,
+      haulItemTitle: haulItem.title,
+      configPrice: config.price,
+      configCategoryId: config.categoryId,
+      configCondition: config.condition,
+      hasDescription: !!config.description,
+      hasImages: !!(haulItem.image_url || haulItem.additional_images?.length)
+    });
+    
+    console.log('🔍 DEBUG: Function version check - location creation enabled');
+    
+    // Skip location setup - let eBay handle it automatically
+    console.log('⚠️ listHaulItemOnEbay: Skipping location setup for sandbox compatibility');
   
   // Create eBay-compliant SKU: alphanumeric only, max 50 chars
   const cleanId = haulItem.id.replace(/[^a-zA-Z0-9]/g, ''); // Remove hyphens and other special chars
@@ -276,13 +315,18 @@ export async function listHaulItemOnEbay(
   }
   console.log('✅ listHaulItemOnEbay: Found', allImages.length, 'images');
 
+  // Phase 3 Step 3.1: Enhanced inventory item with dynamic aspects
   const inventoryItem: EbayInventoryItem = {
     sku,
     product: {
       title: config.title || haulItem.title,
       description: config.description || generateDescription(haulItem),
       imageUrls: (config.images ? config.images.map(ensureProtocol) : allImages).slice(0, 12), // Use user images if provided, otherwise eBay allows max 12 images
-      aspects: generateItemAspects(config.categoryId, haulItem.title)
+      // ENHANCED: Include all aspects (auto-detected + user-provided)
+      aspects: {
+        ...generateItemAspects(config.categoryId, haulItem.title), // Fallback aspects
+        ...config.aspects, // User-provided aspects take precedence
+      },
     },
     condition: config.condition,
     availability: {
@@ -291,6 +335,8 @@ export async function listHaulItemOnEbay(
       }
     }
   };
+
+  console.log('📦 Creating inventory item with aspects:', inventoryItem.product.aspects);
 
   console.log('📦 listHaulItemOnEbay: Creating inventory item...');
   await createInventoryItem(userAccessToken, inventoryItem);
@@ -310,12 +356,12 @@ export async function listHaulItemOnEbay(
       }
     },
     listingPolicies: {
-      fulfillmentPolicyId: '6209718000',
-      paymentPolicyId: '6209719000',
-      returnPolicyId: '6209720000'
+      fulfillmentPolicyId: config.fulfillmentPolicyId || '6209718000',
+      paymentPolicyId: config.paymentPolicyId || '6209719000',
+      returnPolicyId: config.returnPolicyId || '6209720000'
     },
-    categoryId: '139973', // Video Games & Consoles > Video Games > Nintendo Game Boy Advance
-    merchantLocationKey: 'bidpeeksbx'
+    categoryId: config.categoryId, // Phase 3 Step 3.1: Use dynamic category ID
+    merchantLocationKey: config.merchantLocationKey || 'bidpeeksbx'
   };
 
   console.log('📄 listHaulItemOnEbay: Offer config:', {
@@ -333,7 +379,26 @@ export async function listHaulItemOnEbay(
   const { listingId, itemWebUrl } = await publishOffer(userAccessToken, offerId);
   console.log('✅ listHaulItemOnEbay: Listing published with ID:', listingId);
 
-  return { sku, offerId, listingId, itemWebUrl };
+    return { 
+      success: true,
+      sku, 
+      offerId, 
+      listingId, 
+      itemWebUrl 
+    };
+  } catch (error) {
+    console.error('❌ listHaulItemOnEbay: Error occurred:', error);
+    
+    // Phase 3 Step 3.2: Enhanced error handling
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    const parsedError = EbayErrorHandler.parseEbayError(error);
+    const userFriendlyError = EbayErrorHandler.getUserFriendlyError(parsedError);
+    
+    return {
+      success: false,
+      error: userFriendlyError,
+    };
+  }
 }
 
 /**
