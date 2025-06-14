@@ -35,6 +35,8 @@ export interface EbayOffer {
   };
   categoryId: string;
   merchantLocationKey?: string;
+  listingDuration?: string;
+  availableQuantity?: number;
   tax?: {
     applyTax: boolean;
     thirdPartyTaxCategory?: string;
@@ -343,13 +345,50 @@ export async function listHaulItemOnEbay(
   await createInventoryItem(userAccessToken, inventoryItem);
   console.log('✅ listHaulItemOnEbay: Inventory item created');
 
-  // Step 2: Create offer
-  console.log('💰 listHaulItemOnEbay: Creating offer...');
-  
+  // Step 1.5: Get user's existing merchant location
+  console.log('📍 Getting user\'s existing merchant location...');
+  let merchantLocationKey = '';
+
+  try {
+    const listResponse = await fetch(`${LISTING_CONFIG.inventoryUrl}/location`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${userAccessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (listResponse.ok) {
+      const locationData = await listResponse.json();
+      console.log('📋 User\'s existing locations:', locationData);
+      
+      if (locationData.locations && locationData.locations.length > 0) {
+        const enabledLocation = locationData.locations.find(
+          (loc: any) => loc.merchantLocationStatus === 'ENABLED'
+        ) || locationData.locations[0];
+        
+        merchantLocationKey = enabledLocation.merchantLocationKey;
+        console.log('✅ Using existing merchant location:', merchantLocationKey);
+      } else {
+        // User has no locations - create one
+        console.log('⚠️ User has no merchant locations, creating default...');
+        const { merchantLocationKey: newKey } = await createDefaultLocation(userAccessToken, config.country);
+        merchantLocationKey = newKey;
+      }
+    }
+  } catch (error) {
+    console.log('❌ Could not get user locations:', error);
+    // Fallback: create default location
+    const { merchantLocationKey: newKey } = await createDefaultLocation(userAccessToken, config.country);
+    merchantLocationKey = newKey;
+  }
+
+  // Move offer creation outside the try block
   const offer: EbayOffer = {
     sku,
     marketplaceId: 'EBAY_US',
     format: 'FIXED_PRICE',
+    categoryId: config.categoryId,
     pricingSummary: {
       price: {
         value: (config.price || haulItem.sale_price).toString(),
@@ -357,20 +396,14 @@ export async function listHaulItemOnEbay(
       }
     },
     listingPolicies: {
-      fulfillmentPolicyId: config.fulfillmentPolicyId || '6209718000',
-      paymentPolicyId: config.paymentPolicyId || '6209719000',
-      returnPolicyId: config.returnPolicyId || '6209720000'
+      fulfillmentPolicyId: '294300402011',
+      paymentPolicyId: '294300337011',
+      returnPolicyId: '294300348011'
     },
-    categoryId: config.categoryId, // Phase 3 Step 3.1: Use dynamic category ID
-    merchantLocationKey: config.merchantLocationKey || 'bidpeeksbx'
+    merchantLocationKey,
+    listingDuration: 'GTC',
+    availableQuantity: 1
   };
-
-  console.log('📄 listHaulItemOnEbay: Offer config:', {
-    sku: offer.sku,
-    price: offer.pricingSummary.price.value,
-    categoryId: offer.categoryId,
-    hasPolicies: !!(config.fulfillmentPolicyId || config.paymentPolicyId || config.returnPolicyId)
-  });
 
   const { offerId } = await createOffer(userAccessToken, offer);
   console.log('✅ listHaulItemOnEbay: Offer created with ID:', offerId);

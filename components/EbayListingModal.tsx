@@ -22,6 +22,7 @@ import { useThemeColor } from '@/constants/useThemeColor';
 import { Picker } from '@react-native-picker/picker';
 import { OPENAI_API_KEY } from '@env';
 import { CategoryIntelligenceService, SmartCategoryResult, DynamicField } from '../services/categoryIntelligenceService';
+import { EbayTaxonomyService } from '../services/ebayTaxonomyService';
 import { PerformanceMonitor } from '../services/performanceMonitor';
 
 
@@ -105,6 +106,36 @@ export default function EbayListingModal({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isValidating, setIsValidating] = useState(false);
 
+  // Enhanced Tiered Category System state
+  const [tier1, setTier1] = useState<{ id: string; name: string; locked: boolean } | null>(null);
+  const [tier2, setTier2] = useState<{ id: string; name: string; locked: boolean } | null>(null);
+  const [tier3, setTier3] = useState<{ id: string; name: string; locked: boolean } | null>(null);
+  const [editingTier, setEditingTier] = useState<1 | 2 | 3 | null>(null);
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const [availableCategories, setAvailableCategories] = useState<{ id: string; name: string }[]>([]);
+  
+  // Debug: Track availableCategories changes
+  useEffect(() => {
+    console.log('🔧 availableCategories state changed:', availableCategories.length, 'categories');
+    if (availableCategories.length > 0) {
+      console.log('🔧 First 3 categories:', availableCategories.slice(0, 3).map(c => c.name));
+    }
+  }, [availableCategories]);
+  
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+  
+  // Debug: Track category picker modal visibility
+  useEffect(() => {
+    if (categoryPickerVisible) {
+      console.log('🔧 Category picker modal opened with:', {
+        editingTier,
+        availableCategoriesCount: availableCategories.length,
+        isLoadingCategories,
+        firstCategory: availableCategories[0]?.name || 'none'
+      });
+    }
+  }, [categoryPickerVisible, editingTier, availableCategories.length, isLoadingCategories]);
+
   // Theme colors
   const backgroundColor = useThemeColor('background');
   const textColor = useThemeColor('text');
@@ -124,9 +155,36 @@ export default function EbayListingModal({
   // Phase 2: Auto-analyze item when modal opens
   useEffect(() => {
     if (visible && item) {
+      // Initialize form with item data
+      setEditableTitle(item.title);
+      setPrice(item.sale_price.toString());
+      setEditableImages(item.additional_images || []);
+      
       analyzeItemIntelligently();
     }
   }, [visible, item]);
+
+  // Reset tier state when modal closes
+  useEffect(() => {
+    if (!visible) {
+      setTier1(null);
+      setTier2(null);
+      setTier3(null);
+      setEditingTier(null);
+      setCategoryPickerVisible(false);
+      setAvailableCategories([]);
+      setIsLoadingCategories(false);
+    }
+  }, [visible]);
+  
+  // Reset category picker state when it closes (but keep categories if main modal is still open)
+  useEffect(() => {
+    if (!categoryPickerVisible && visible) {
+      // Only clear editing tier when picker closes, but keep categories for potential reuse
+      setEditingTier(null);
+      setIsLoadingCategories(false);
+    }
+  }, [categoryPickerVisible, visible]);
 
   // Get eBay access token for API calls - use the user's stored token
   const getEbayAccessToken = async (): Promise<string> => {
@@ -170,9 +228,17 @@ export default function EbayListingModal({
         return;
       }
       
+      // Set the analysis FIRST so loadDynamicFieldsForCategory can access it
       setCategoryAnalysis(realAnalysis);
       setCategoryId(realAnalysis.recommendedCategory);
-      await loadDynamicFieldsForCategory(realAnalysis.recommendedCategory, 0);
+      
+      // Auto-populate tiers from the first (recommended) suggestion
+      if (realAnalysis.suggestedCategories.length > 0) {
+        await populateTiersFromSuggestion(realAnalysis.suggestedCategories[0]);
+        
+        // Load dynamic fields immediately with the analysis data
+        await loadDynamicFieldsForCategoryWithAnalysis(realAnalysis.suggestedCategories[0].categoryId, 0, realAnalysis);
+      }
       
       console.log('✅ Real analysis complete with', realAnalysis.suggestedCategories.length, 'suggestions');
     } catch (error) {
@@ -190,15 +256,31 @@ export default function EbayListingModal({
   const handleCategoryChange = async (newCategoryId: string, suggestionIndex: number) => {
     setCategoryId(newCategoryId);
     setSelectedCategoryIndex(suggestionIndex);
+    
+    // Populate tiered system from selected suggestion
+    if (categoryAnalysis?.suggestedCategories[suggestionIndex]) {
+      await populateTiersFromSuggestion(categoryAnalysis.suggestedCategories[suggestionIndex]);
+    }
+    
     await loadDynamicFieldsForCategory(newCategoryId, suggestionIndex);
   };
 
-  // Load dynamic fields when category changes
-  const loadDynamicFieldsForCategory = async (categoryId: string, suggestionIndex: number) => {
-    if (!categoryAnalysis) return;
+  // Load dynamic fields when category changes (with analysis passed directly)
+  const loadDynamicFieldsForCategoryWithAnalysis = async (categoryId: string, suggestionIndex: number, analysis: any) => {
+    console.log('🔧 loadDynamicFieldsForCategoryWithAnalysis called with:', { categoryId, suggestionIndex, hasAnalysis: !!analysis });
+    
+    if (!analysis) {
+      console.log('⚠️ No category analysis provided');
+      return;
+    }
 
-    const suggestion = categoryAnalysis.suggestedCategories[suggestionIndex];
-    if (!suggestion) return;
+    const suggestion = analysis.suggestedCategories[suggestionIndex];
+    if (!suggestion) {
+      console.log('⚠️ No suggestion found at index:', suggestionIndex);
+      return;
+    }
+    
+    console.log('🔧 Processing suggestion:', suggestion.categoryName);
 
     // Set auto-detected aspects
     setUserAspects((prev) => ({
@@ -215,11 +297,12 @@ export default function EbayListingModal({
       const dynamicFields = intelligenceService.createDynamicFields(aspects, suggestion.autoDetectedAspects);
       
       setDynamicFields(dynamicFields);
-      console.log('🔧 Loaded real dynamic fields for category:', categoryId, dynamicFields);
+      console.log('✅ Successfully loaded', dynamicFields.length, 'dynamic fields for category:', categoryId);
+      console.log('🔧 Dynamic field names:', dynamicFields.map(f => f.name));
     } catch (error) {
       console.error('Failed to load category aspects:', error);
       // Fallback to suggestion's requiredUserInput for now
-      const fields: DynamicField[] = suggestion.requiredUserInput.map(fieldName => ({
+      const fields: DynamicField[] = suggestion.requiredUserInput.map((fieldName: string) => ({
         name: fieldName,
         label: fieldName,
         type: 'text' as const,
@@ -229,7 +312,21 @@ export default function EbayListingModal({
       }));
       
       setDynamicFields(fields);
+      console.log('⚠️ Used fallback dynamic fields:', fields.map(f => f.name));
     }
+  };
+
+  // Load dynamic fields when category changes (uses state)
+  const loadDynamicFieldsForCategory = async (categoryId: string, suggestionIndex: number) => {
+    console.log('🔧 loadDynamicFieldsForCategory called with:', { categoryId, suggestionIndex, hasAnalysis: !!categoryAnalysis });
+    
+    if (!categoryAnalysis) {
+      console.log('⚠️ No category analysis available');
+      return;
+    }
+
+    // Delegate to the version that accepts analysis directly
+    await loadDynamicFieldsForCategoryWithAnalysis(categoryId, suggestionIndex, categoryAnalysis);
   };
 
   // Helper function to determine field type based on aspect name
@@ -277,6 +374,264 @@ export default function EbayListingModal({
     console.log('📝 Dynamic field changed:', fieldName, value);
   };
 
+  // Tiered Category System: Parse category hierarchy from eBay suggestions
+  const parseCategoryHierarchy = (categoryName: string): { tier1: string; tier2: string; tier3: string } => {
+    const parts = categoryName.split(' > ').map(part => part.trim());
+    
+    return {
+      tier1: parts[0] || '',
+      tier2: parts[1] || '',
+      tier3: parts[2] || parts[1] || parts[0] || '' // Fallback logic
+    };
+  };
+
+  // Enhanced Tiered Category System: Auto-populate tiers from selected suggestion
+  const populateTiersFromSuggestion = async (suggestion: any) => {
+    try {
+      console.log('🏷️ Populating tiers from suggestion:', suggestion.categoryName);
+      
+      // Extract ancestry directly from the suggestion data (no API call needed!)
+      const accessToken = await getEbayAccessToken();
+      const taxonomyService = new (await import('../services/ebayTaxonomyService')).EbayTaxonomyService(accessToken);
+      const ancestry = taxonomyService.extractAncestryFromSuggestion(suggestion);
+      
+      console.log('🔍 Got ancestry:', ancestry.map(c => c.categoryName).join(' > '));
+      
+      // Clear all tiers first
+      setTier1(null);
+      setTier2(null);
+      setTier3(null);
+      
+      // Populate tiers based on actual ancestry
+      if (ancestry.length >= 1) {
+        setTier1({ 
+          id: ancestry[0].categoryId, 
+          name: ancestry[0].categoryName, 
+          locked: true 
+        });
+      }
+      
+      if (ancestry.length >= 2) {
+        setTier2({ 
+          id: ancestry[1].categoryId, 
+          name: ancestry[1].categoryName, 
+          locked: true 
+        });
+      }
+      
+      if (ancestry.length >= 3) {
+        setTier3({ 
+          id: ancestry[2].categoryId, 
+          name: ancestry[2].categoryName, 
+          locked: true 
+        });
+      }
+      
+      // Update the main categoryId for compatibility (use the final/leaf category)
+      setCategoryId(suggestion.categoryId);
+      
+      // Dynamic fields are loaded by loadDynamicFieldsForCategory in analyzeItemIntelligently
+      console.log('✅ Tiers populated, dynamic fields will be loaded by main analysis flow');
+      
+      console.log('✅ Populated tiers with real category IDs');
+    } catch (error) {
+      console.error('❌ Failed to populate tiers from suggestion:', error);
+      
+      // Fallback to the old method if API fails
+      const hierarchy = parseCategoryHierarchy(suggestion.categoryName);
+      setTier1({ id: suggestion.categoryId, name: hierarchy.tier1, locked: true });
+      
+      if (hierarchy.tier2 && hierarchy.tier2 !== hierarchy.tier1) {
+        setTier2({ id: suggestion.categoryId, name: hierarchy.tier2, locked: true });
+        
+        if (hierarchy.tier3 && hierarchy.tier3 !== hierarchy.tier2) {
+          setTier3({ id: suggestion.categoryId, name: hierarchy.tier3, locked: true });
+        }
+      }
+      
+      setCategoryId(suggestion.categoryId);
+      console.log('✅ Fallback tiers populated, dynamic fields handled by main flow');
+    }
+  };
+
+  // Enhanced Tiered Category System: Get final category ID
+  const getFinalCategoryId = (): string | null => {
+    if (tier3?.id) return tier3.id;
+    if (tier2?.id) return tier2.id;
+    if (tier1?.id) return tier1.id;
+    return categoryId; // Fallback to original categoryId
+  };
+
+  // Enhanced Tiered Category System: Check if category has children
+  const checkCategoryDepth = async (categoryId: string): Promise<boolean> => {
+    try {
+      const accessToken = await getEbayAccessToken();
+      const taxonomyService = new (await import('../services/ebayTaxonomyService')).EbayTaxonomyService(accessToken);
+      const children = await taxonomyService.getChildCategories(categoryId);
+      return children.length > 0;
+    } catch (error) {
+      console.error('❌ Failed to check category depth:', error);
+      return false;
+    }
+  };
+
+  // Note: loadDynamicFieldsForFinalCategory removed - we now use loadDynamicFieldsForCategory consistently
+
+  // Enhanced Tiered Category System: Handle tier editing with real API
+  const handleTierEdit = async (tierNumber: 1 | 2 | 3) => {
+    Alert.alert(
+      'Change Category',
+      `Do you want to change this category? This will reset any categories below it.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Change', 
+          onPress: async () => {
+            setIsLoadingCategories(true);
+            try {
+              let parentCategoryId: string;
+              
+              // Determine parent category for fetching siblings (not children!)
+              if (tierNumber === 1) {
+                // For tier 1, get root level categories from eBay
+                const accessToken = await getEbayAccessToken();
+                const taxonomyService = new (await import('../services/ebayTaxonomyService')).EbayTaxonomyService(accessToken);
+                const rootCategories = await taxonomyService.getRootCategories();
+                const categoryOptions = rootCategories.map(c => ({ id: c.categoryId, name: c.categoryName }));
+                setAvailableCategories(categoryOptions);
+                console.log(`🔧 Loaded ${categoryOptions.length} root categories for tier 1:`, categoryOptions.slice(0, 3).map(c => c.name));
+              } else if (tierNumber === 2 && tier1) {
+                 // For tier 2, we need to find tier 1's parent and get its children (tier 2 siblings)
+                 // Since we don't store parent IDs, we'll get root categories and find tier 1's siblings
+                 const accessToken = await getEbayAccessToken();
+                 const taxonomyService = new (await import('../services/ebayTaxonomyService')).EbayTaxonomyService(accessToken);
+                 
+                 // Get root categories to find tier 1's parent
+                 const rootCategories = await taxonomyService.getRootCategories();
+                 
+                 // Find which root category contains our tier 1
+                 let tier2Options: any[] = [];
+                 for (const rootCat of rootCategories) {
+                   const children = await taxonomyService.getChildCategories(rootCat.categoryId);
+                   // Check if our tier1 is in these children
+                   if (children.some(child => child.categoryId === tier1.id)) {
+                     tier2Options = children;
+                     console.log(`🔧 Found tier 1 "${tier1.name}" under root category "${rootCat.categoryName}"`);
+                     break;
+                   }
+                 }
+                 
+                 const categoryOptions = tier2Options.map(c => ({ id: c.categoryId, name: c.categoryName }));
+                 
+                 if (categoryOptions.length === 0) {
+                   console.log(`⚠️ Could not find siblings for tier 2: ${tier1.name}`);
+                   Alert.alert(
+                     'No Categories Found', 
+                     `Could not find other categories at this level.`,
+                     [{ text: 'OK' }]
+                   );
+                   setIsLoadingCategories(false);
+                   return;
+                 }
+                 
+                 console.log('🔧 About to set availableCategories with:', categoryOptions.length, 'categories');
+                 setAvailableCategories(categoryOptions);
+                 console.log(`🔧 Loaded ${categoryOptions.length} tier 2 siblings (including ${tier1.name}):`, categoryOptions.slice(0, 3).map(c => c.name));
+                 console.log('🔧 Full categoryOptions for tier 2:', JSON.stringify(categoryOptions, null, 2));
+              } else if (tierNumber === 3 && tier2) {
+                 // For tier 3, get children of tier 2 (this is correct - we want tier 3 options)
+                 parentCategoryId = tier2.id;
+                 const accessToken = await getEbayAccessToken();
+                 const taxonomyService = new (await import('../services/ebayTaxonomyService')).EbayTaxonomyService(accessToken);
+                 const children = await taxonomyService.getChildCategories(parentCategoryId);
+                 const categoryOptions = children.map(c => ({ id: c.categoryId, name: c.categoryName }));
+                 
+                 if (categoryOptions.length === 0) {
+                   console.log(`⚠️ No children found for ${tier2.name} (${parentCategoryId}). This might be a leaf category.`);
+                   Alert.alert(
+                     'No Subcategories', 
+                     `"${tier2.name}" doesn't have any subcategories. This category can be used directly for listing.`,
+                     [{ text: 'OK' }]
+                   );
+                   setIsLoadingCategories(false);
+                   return;
+                 }
+                 
+                 setAvailableCategories(categoryOptions);
+                 console.log(`🔧 Loaded ${categoryOptions.length} tier 3 options (children of ${tier2.name}):`, categoryOptions.slice(0, 3).map(c => c.name));
+                 console.log('🔧 Full categoryOptions for tier 3:', JSON.stringify(categoryOptions, null, 2));
+              }
+              
+              // Reset lower tiers when editing higher ones
+              if (tierNumber === 1) {
+                setTier2(null);
+                setTier3(null);
+              } else if (tierNumber === 2) {
+                setTier3(null);
+              }
+              
+              // Only show modal after categories are loaded
+              setEditingTier(tierNumber);
+              setIsLoadingCategories(false);
+              setCategoryPickerVisible(true);
+            } catch (error) {
+              console.error('❌ Failed to load categories for editing:', error);
+              Alert.alert('Error', 'Failed to load categories. Please try again.');
+              setIsLoadingCategories(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Enhanced Tiered Category System: Handle category selection from picker
+  const handleCategorySelection = async (selectedCategory: { id: string; name: string }) => {
+    try {
+      if (editingTier === 1) {
+        setTier1({ id: selectedCategory.id, name: selectedCategory.name, locked: true });
+        // Clear lower tiers when changing tier 1
+        setTier2(null);
+        setTier3(null);
+        // Check if this category has children for tier 2
+        const hasChildren = await checkCategoryDepth(selectedCategory.id);
+        if (!hasChildren) {
+          // This is a leaf category, set as final
+          setCategoryId(selectedCategory.id);
+          console.log('✅ Leaf category selected for tier 1, will reload dynamic fields');
+          // Reload dynamic fields for the new category
+          setTimeout(() => loadDynamicFieldsForCategory(selectedCategory.id, 0), 100);
+        }
+      } else if (editingTier === 2) {
+        setTier2({ id: selectedCategory.id, name: selectedCategory.name, locked: true });
+        // Clear tier 3 when changing tier 2
+        setTier3(null);
+        // Check if this category has children for tier 3
+        const hasChildren = await checkCategoryDepth(selectedCategory.id);
+        if (!hasChildren) {
+          // This is a leaf category, set as final
+          setCategoryId(selectedCategory.id);
+          console.log('✅ Leaf category selected for tier 2, will reload dynamic fields');
+          // Reload dynamic fields for the new category
+          setTimeout(() => loadDynamicFieldsForCategory(selectedCategory.id, 0), 100);
+        }
+      } else if (editingTier === 3) {
+        setTier3({ id: selectedCategory.id, name: selectedCategory.name, locked: true });
+        // Tier 3 is always final, set as final
+        setCategoryId(selectedCategory.id);
+        console.log('✅ Category selected for tier 3, will reload dynamic fields');
+        // Reload dynamic fields for the new category
+        setTimeout(() => loadDynamicFieldsForCategory(selectedCategory.id, 0), 100);
+      }
+      
+      setCategoryPickerVisible(false);
+      setEditingTier(null);
+      console.log('✅ Updated tier', editingTier, 'to:', selectedCategory.name);
+    } catch (error) {
+      console.error('❌ Failed to handle category selection:', error);
+    }
+  };
+
   // Phase 2 Step 2.2: Pre-submission validation
   const validateBeforeSubmission = async (): Promise<boolean> => {
     return PerformanceMonitor.trackValidation(async () => {
@@ -301,9 +656,14 @@ export default function EbayListingModal({
           }
         }
 
-        // Basic validation for other fields
-        if (!categoryId) {
-          errors.push('Category is required');
+        // Flexible tiered category validation
+        if (!tier1) {
+          errors.push('Category must be selected');
+        } else {
+          const finalCategoryId = getFinalCategoryId();
+          if (!finalCategoryId) {
+            errors.push('Complete category selection required');
+          }
         }
         if (!price || parseFloat(price) <= 0) {
           errors.push('Valid price is required');
@@ -821,7 +1181,7 @@ Return only the description text, nothing else.`
               </Text>
             </Animated.View>
 
-            {/* Category Selection */}
+            {/* Tiered Category Selection */}
             <Animated.View 
               style={styles.section}
               entering={FadeInDown.delay(250).duration(400)}
@@ -830,25 +1190,89 @@ Return only the description text, nothing else.`
                 <Tag size={20} color={tintColor} />
                 <Text style={[styles.sectionTitle, { color: textColor }]}>Category</Text>
               </View>
-              <View style={[styles.pickerContainer, { borderColor: borderColor + '40' }]}>
-                <Picker
-                  selectedValue={categoryId}
-                  onValueChange={setCategoryId}
-                  style={[styles.picker, { color: textColor }]}
-                  enabled={!loading}
-                >
-                  <Picker.Item label="Select a category..." value="" />
-                  {COMMON_CATEGORIES.map((category) => (
-                    <Picker.Item 
-                      key={category.id} 
-                      label={category.name} 
-                      value={category.id} 
-                    />
-                  ))}
-                </Picker>
-              </View>
+              
+              {/* Tier 1 */}
+              <TouchableOpacity
+                style={[
+                  styles.tierButton,
+                  {
+                    backgroundColor: tier1?.locked ? tintColor + '15' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: tier1?.locked ? tintColor : borderColor + '40'
+                  }
+                ]}
+                onPress={() => tier1 && handleTierEdit(1)}
+                disabled={loading || !tier1}
+              >
+                <Text style={[
+                  styles.tierText,
+                  { color: tier1 ? textColor : subtleText }
+                ]}>
+                  {tier1?.name || 'Select Category'}
+                </Text>
+                {tier1?.locked ? (
+                  <CheckCircle size={16} color={tintColor} />
+                ) : (
+                  <Text style={[styles.tierArrow, { color: subtleText }]}>▼</Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Tier 2 */}
+              <TouchableOpacity
+                style={[
+                  styles.tierButton,
+                  {
+                    backgroundColor: tier2?.locked ? tintColor + '15' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: tier2?.locked ? tintColor : borderColor + '40',
+                    opacity: tier1 ? 1 : 0.5
+                  }
+                ]}
+                onPress={() => tier1 && handleTierEdit(2)}
+                disabled={loading || !tier1}
+              >
+                <Text style={[
+                  styles.tierText,
+                  { color: tier2 ? textColor : subtleText }
+                ]}>
+                  {tier2?.name || 'Select Subcategory'}
+                </Text>
+                {tier2?.locked ? (
+                  <CheckCircle size={16} color={tintColor} />
+                ) : (
+                  <Text style={[styles.tierArrow, { color: subtleText }]}>▼</Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Tier 3 */}
+              <TouchableOpacity
+                style={[
+                  styles.tierButton,
+                  {
+                    backgroundColor: tier3?.locked ? tintColor + '15' : 'rgba(128, 128, 128, 0.1)',
+                    borderColor: tier3?.locked ? tintColor : borderColor + '40',
+                    opacity: tier2 ? 1 : 0.5
+                  }
+                ]}
+                onPress={() => tier2 && handleTierEdit(3)}
+                disabled={loading || !tier2}
+              >
+                <Text style={[
+                  styles.tierText,
+                  { color: tier3 ? textColor : subtleText }
+                ]}>
+                  {tier3?.name || 'Select Specific Category'}
+                </Text>
+                {tier3?.locked ? (
+                  <CheckCircle size={16} color={tintColor} />
+                ) : (
+                  <Text style={[styles.tierArrow, { color: subtleText }]}>▼</Text>
+                )}
+              </TouchableOpacity>
+              
               <Text style={[styles.helperText, { color: subtleText }]}>
-                Choose the most appropriate category for your item
+                {tier1 
+                  ? 'Category selected! Tap any tier to change it. eBay categories have 2-4 levels depending on the category.'
+                  : 'Select a category suggestion above to auto-populate these tiers.'
+                }
               </Text>
             </Animated.View>
 
@@ -1064,6 +1488,70 @@ Return only the description text, nothing else.`
           </View>
         </Animated.View>
       </View>
+
+      {/* Category Picker Modal */}
+      <Modal
+        visible={categoryPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCategoryPickerVisible(false)}
+      >
+        <View style={styles.overlay}>
+          <Animated.View 
+            style={[styles.pickerModal, { backgroundColor: backgroundColor }]}
+            entering={FadeInDown.duration(300)}
+          >
+            <View style={[styles.header, { borderBottomColor: borderColor + '40' }]}>
+              <Text style={[styles.title, { color: textColor }]}>
+                Select {editingTier === 1 ? 'Category' : editingTier === 2 ? 'Subcategory' : 'Specific Category'}
+              </Text>
+              <TouchableOpacity onPress={() => setCategoryPickerVisible(false)}>
+                <X size={24} color={textColor} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.pickerContent}>
+              {(() => {
+                console.log('🔧 RENDER: isLoadingCategories:', isLoadingCategories, 'availableCategories.length:', availableCategories.length);
+                return null;
+              })()}
+              {isLoadingCategories ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={tintColor} />
+                  <Text style={[styles.loadingText, { color: textColor }]}>Loading categories...</Text>
+                </View>
+              ) : availableCategories.length === 0 ? (
+                <View style={styles.loadingContainer}>
+                  <Text style={[styles.loadingText, { color: textColor }]}>No categories available</Text>
+                  <Text style={[styles.helperText, { color: subtleText }]}>
+                    Debug: {JSON.stringify({ editingTier, categoriesCount: availableCategories.length })}
+                  </Text>
+                  <Text style={[styles.helperText, { color: subtleText, fontSize: 10 }]}>
+                    availableCategories: {JSON.stringify(availableCategories)}
+                  </Text>
+                </View>
+              ) : (
+                (() => {
+                  console.log('🔧 RENDER: About to render', availableCategories.length, 'categories');
+                  console.log('🔧 RENDER: Categories:', availableCategories.map(c => c.name));
+                  return availableCategories.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={[styles.categoryPickerItem, { borderBottomColor: borderColor + '20' }]}
+                      onPress={() => handleCategorySelection(category)}
+                    >
+                      <Text style={[styles.categoryPickerText, { color: textColor }]}>
+                        {category.name}
+                      </Text>
+                      <Text style={[styles.categoryPickerArrow, { color: subtleText }]}>›</Text>
+                    </TouchableOpacity>
+                  ));
+                })()
+              )}
+            </ScrollView>
+          </Animated.View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -1457,5 +1945,61 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  // Tiered Category System Styles
+  tierButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+    minHeight: 50,
+  },
+  tierText: {
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  tierArrow: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Category Picker Modal Styles
+  pickerModal: {
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '70%',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  pickerContent: {
+    height: 400, // Fixed height instead of flex: 1
+    padding: 16,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    marginTop: 12,
+  },
+  categoryPickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  categoryPickerText: {
+    fontSize: 16,
+    flex: 1,
+  },
+  categoryPickerArrow: {
+    fontSize: 18,
+    fontWeight: '300',
   },
 }); 

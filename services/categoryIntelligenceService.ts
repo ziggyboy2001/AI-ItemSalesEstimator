@@ -10,6 +10,10 @@ interface SmartCategoryResult {
     confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     autoDetectedAspects: Record<string, string[]>;
     requiredUserInput: string[];
+    categoryTreeNodeAncestors?: Array<{
+      categoryId: string;
+      categoryName: string;
+    }>;
   }>;
   recommendedCategory: string;
 }
@@ -77,6 +81,7 @@ export class CategoryIntelligenceService {
             confidence: suggestion.relevancy as 'HIGH' | 'MEDIUM' | 'LOW',
             autoDetectedAspects: autoDetected,
             requiredUserInput,
+            categoryTreeNodeAncestors: suggestion.categoryTreeNodeAncestors,
           };
         })
       );
